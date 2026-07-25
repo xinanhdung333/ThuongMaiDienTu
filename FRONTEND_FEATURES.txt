@@ -1,0 +1,69 @@
+Danh sách chức năng Frontend hiện tại
+
+1) Tổng quan
+- Project: React + TypeScript + Vite
+- Thư mục frontend chính: src/
+- Mục tiêu: cửa hàng (ecommerce) mini với quản lý người dùng, giỏ hàng, sản phẩm, và quản trị cơ bản
+
+2) Trang (pages)
+- Home.tsx: Trang chủ (danh sách sản phẩm, highlight)
+- ProductListing.tsx: Trang danh sách sản phẩm (lọc/hiện thị nhiều sản phẩm)
+- ProductDetail.tsx: Trang chi tiết sản phẩm (biến thể, thêm vào giỏ hàng, wishlist)
+- Cart.tsx: Giỏ hàng (xem, thay đổi số lượng, xóa mục)
+- Checkout.tsx: Thanh toán (tóm tắt đơn hàng, gửi order)
+- Orders.tsx: Danh sách/chi tiết đơn hàng của người dùng
+- Profile.tsx: Hồ sơ người dùng (xem/chỉnh sửa thông tin cá nhân)
+
+3) Trang liên quan tới quản trị và người bán
+- admin/AdminDashboard.tsx: Bảng điều khiển admin tổng quan
+- admin/ManageProducts.tsx: Quản lý sản phẩm (thêm, sửa, xóa)
+- admin/ManageUsers.tsx: Quản lý người dùng
+- store/RegisterShop.tsx: Đăng ký cửa hàng/merchant
+- store/SellerDashboard.tsx: Bảng điều khiển người bán (quản lý shop)
+
+4) Trang xác thực (auth)
+- auth/Login.tsx: Đăng nhập
+- auth/Register.tsx: Đăng ký tài khoản
+- auth/ForgotPassword.tsx: Quên mật khẩu
+
+5) Component (gồm layout và UI tái sử dụng)
+- layout/AppLayout.tsx: Layout chính (vị trí cho navbar, footer, content)
+- layout/Navbar.tsx: Thanh điều hướng
+- layout/Footer.tsx: Chân trang
+- layout/RoleMenus.tsx: Menu/điều hướng theo vai trò
+- common/ErrorBoundary.tsx: Bắt lỗi React boundary
+- common/Skeleton.tsx: Placeholder loading skeleton
+- product/ProductCard.tsx: Card hiển thị sản phẩm (dùng trên listing/home)
+- store/VariantEditor.tsx: Trình chỉnh sửa biến thể sản phẩm (UI quản trị/merchant)
+
+6) Contexts và thông báo
+- context/ThemeContext.tsx: Quản lý theme (dark/light)
+- context/ToastContext.tsx: Hệ thống toast thông báo
+
+7) State management (stores)
+- store/authStore.ts: Store quản lý trạng thái xác thực/người dùng
+- store/cartStore.ts: Store giỏ hàng (thêm/xóa/cập nhật số lượng)
+- store/wishlistStore.ts: Store wishlist/ưa thích
+
+8) Services / Mock DB
+- services/mockDb.ts: Dữ liệu giả lập / helper để mô phỏng backend
+
+9) Kiểu dữ liệu
+- types/index.ts: Định nghĩa TypeScript types và interfaces dùng chung
+
+10) File khởi tạo & cấu hình frontend
+- index.html, src/main.tsx, src/App.tsx, src/index.css, src/App.css
+- tsconfig.*.json, vite.config.ts, package.json
+
+11) Tài nguyên tĩnh & assets
+- public/: tệp tĩnh (favicon, manifest, hình ảnh tĩnh)
+- src/assets/: ảnh, icon, file tĩnh dùng trong app
+
+12) Ghi chú khác
+- Có script SQL và tài liệu database trong gốc dự án (ecommerce_postgresql (4).sql, So_do_quan_he_Database_Shopee_Lite.txt) nhưng backend không có trong yêu cầu này
+- Routing và điều hướng chính được cấu hình trong src/App.tsx và các component layout
+
+Nếu bạn muốn, tôi có thể:
+- mở file này để bạn xem ngay
+- cập nhật nội dung chi tiết hơn (mô tả action, props, hoặc liệt kê các hàm/prop chính của mỗi component)
+- tạo phiên bản Markdown hoặc JSON của danh sách để dễ xử lý

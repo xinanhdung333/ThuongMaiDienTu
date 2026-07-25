@@ -1,0 +1,261 @@
+﻿Sơ đồ quan hệ và các mối quan hệ trong Database Shopee Lite
+Phiên bản đã chỉnh sửa.
+
+==========================================================
+1. SƠ ĐỒ TỔNG QUÁT
+==========================================================
+
+roles
+  1 - N
+user_roles
+  N - 1
+users
+  1 - N addresses
+  1 - 1 carts
+  1 - 1 shops
+  1 - N orders
+  1 - N product_reviews
+  1 - N return_requests
+  N - N shops thông qua shop_followers
+  N - N products thông qua wishlists
+
+shops
+  1 - N products
+  1 - N vouchers
+  1 - N order_shop_groups
+  N - N users thông qua shop_followers
+
+categories
+  1 - N products
+  self reference: parent_id -> category_id
+
+brands
+  1 - N products
+
+products
+  1 - N product_images
+  1 - N product_variants
+  1 - N product_reviews
+  1 - N product_views
+  N - N users thông qua wishlists
+
+attributes
+  1 - N attribute_values
+
+product_variants
+  1 - 1 inventory
+  N - N attribute_values thông qua variant_attribute_values
+  1 - N cart_items
+  1 - N order_items
+
+carts
+  1 - N cart_items
+
+orders
+  1 - N order_shop_groups
+  1 - N order_items
+  1 - N order_status_history
+  1 - 1 payments
+  N - N vouchers thông qua order_vouchers
+
+order_shop_groups
+  1 - N order_items
+  1 - 1 shipments
+
+order_items
+  1 - 0..1 product_reviews
+  1 - N return_requests
+
+return_requests
+  1 - 0..1 refunds
+
+payment_methods
+  1 - N orders
+
+shipping_methods
+  1 - N orders
+
+==========================================================
+2. QUAN HỆ 1 - 1
+==========================================================
+
+users - shops
+Ý nghĩa: Một người bán chỉ sở hữu một shop trong bản Shopee Lite.
+Khóa: shops.owner_id UNIQUE -> users.user_id.
+
+users - carts
+Ý nghĩa: Mỗi người dùng có một giỏ hàng.
+Khóa: carts.user_id UNIQUE -> users.user_id.
+
+product_variants - inventory
+Ý nghĩa: Mỗi SKU có một bản ghi tồn kho.
+Khóa: inventory.variant_id UNIQUE -> product_variants.variant_id.
+
+orders - payments
+Ý nghĩa: Mỗi đơn hàng tổng có tối đa một thanh toán.
+Khóa: payments.order_id UNIQUE -> orders.order_id.
+
+order_shop_groups - shipments
+Ý nghĩa: Mỗi nhóm đơn theo shop có một gói giao hàng.
+Khóa: shipments.order_shop_id UNIQUE -> order_shop_groups.order_shop_id.
+
+return_requests - refunds
+Ý nghĩa: Mỗi yêu cầu trả hàng có tối đa một bản ghi hoàn tiền.
+Khóa: refunds.return_id UNIQUE -> return_requests.return_id.
+
+==========================================================
+3. QUAN HỆ 1 - N
+==========================================================
+
+users - addresses
+Một user có nhiều địa chỉ giao hàng.
+
+shops - products
+Một shop bán nhiều sản phẩm.
+
+brands - products
+Một thương hiệu có nhiều sản phẩm.
+
+categories - products
+Một danh mục chứa nhiều sản phẩm.
+
+products - product_images
+Một sản phẩm có nhiều ảnh.
+
+products - product_variants
+Một sản phẩm có nhiều SKU/biến thể.
+
+attributes - attribute_values
+Một thuộc tính có nhiều giá trị.
+Ví dụ: Color -> Red, Blue, Black.
+
+carts - cart_items
+Một giỏ hàng có nhiều dòng sản phẩm.
+
+orders - order_shop_groups
+Một đơn tổng có thể tách thành nhiều nhóm theo shop.
+
+orders - order_items
+Một đơn hàng có nhiều dòng sản phẩm.
+
+order_shop_groups - order_items
+Một nhóm đơn theo shop có nhiều dòng sản phẩm.
+
+orders - order_status_history
+Một đơn hàng có nhiều bản ghi lịch sử trạng thái.
+
+products - product_reviews
+Một sản phẩm có nhiều đánh giá.
+
+order_items - return_requests
+Một dòng hàng có thể phát sinh yêu cầu trả hàng.
+
+==========================================================
+4. QUAN HỆ N - N
+==========================================================
+
+users - roles thông qua user_roles
+Một user có nhiều role, một role có thể gán cho nhiều user.
+
+users - shops thông qua shop_followers
+Một user theo dõi nhiều shop, một shop có nhiều follower.
+
+product_variants - attribute_values thông qua variant_attribute_values
+Một variant có nhiều giá trị thuộc tính, một giá trị thuộc tính có thể xuất hiện ở nhiều variant.
+
+users - products thông qua wishlists
+Một user yêu thích nhiều sản phẩm, một sản phẩm được nhiều user yêu thích.
+
+orders - vouchers thông qua order_vouchers
+Một đơn có thể áp dụng nhiều voucher, một voucher có thể được dùng ở nhiều đơn.
+
+==========================================================
+5. SELF REFERENCE
+==========================================================
+
+categories
+category_id <- parent_id
+
+Ví dụ:
+Điện tử
+  -> Điện thoại
+      -> Android
+          -> Samsung
+
+Ý nghĩa: Chỉ cần một bảng categories để biểu diễn cây danh mục nhiều cấp.
+
+==========================================================
+6. LUỒNG NGHIỆP VỤ CHÍNH
+==========================================================
+
+Luồng mua hàng:
+User
+  -> Cart
+  -> CartItems
+  -> Orders
+  -> OrderShopGroups
+  -> OrderItems
+  -> Payments
+  -> Shipments
+  -> Completed
+
+Luồng quản lý sản phẩm:
+Seller/User
+  -> Shop
+  -> Products
+  -> ProductVariants
+  -> Inventory
+
+Luồng đánh giá:
+Completed OrderItem
+  -> ProductReview
+  -> cập nhật average_rating và review_count ở Products
+
+Luồng khuyến mãi:
+Voucher
+  -> OrderVouchers
+  -> Orders
+
+Luồng trả hàng/hoàn tiền:
+OrderItem
+  -> ReturnRequest
+  -> Refund
+
+==========================================================
+7. TÓM TẮT
+==========================================================
+
+Quan hệ 1-1:
+- users - shops
+- users - carts
+- product_variants - inventory
+- orders - payments
+- order_shop_groups - shipments
+- return_requests - refunds
+
+Quan hệ 1-N:
+- users - addresses
+- shops - products
+- brands - products
+- categories - products
+- products - product_images
+- products - product_variants
+- carts - cart_items
+- orders - order_shop_groups
+- orders - order_items
+- orders - order_status_history
+- products - product_reviews
+- order_items - return_requests
+
+Quan hệ N-N:
+- users - roles
+- users - shops theo dõi
+- product_variants - attribute_values
+- users - products yêu thích
+- orders - vouchers
+
+Self reference:
+- categories
+
+Kết luận:
+Database sau chỉnh sửa đầy đủ và hợp lý hơn cho chủ đề thương mại điện tử. Phần quan trọng nhất đã được cải thiện là tách đơn theo shop, bỏ trùng tồn kho, thêm voucher, review, trả hàng, hoàn tiền và bổ sung ràng buộc CHECK để hạn chế dữ liệu sai.

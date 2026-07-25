@@ -1,0 +1,264 @@
+﻿Giải thích Database Shopee Lite
+Phiên bản đã chỉnh sửa: bổ sung ràng buộc dữ liệu, voucher, review, tách đơn theo shop, hoàn trả/hoàn tiền và sửa lỗi encoding tiếng Việt.
+
+1. roles
+Chức năng: Lưu các quyền trong hệ thống: Admin, Seller, Customer.
+Khóa chính: role_id.
+Được tham chiếu bởi: user_roles.role_id.
+
+2. users
+Chức năng: Lưu tài khoản người dùng.
+Khóa chính: user_id.
+Ràng buộc chính:
+- email là duy nhất.
+- phone là duy nhất nếu có.
+- status chỉ nhận ACTIVE hoặc BLOCKED.
+- gender chỉ nhận MALE, FEMALE, OTHER hoặc NULL.
+Được tham chiếu bởi: user_roles, addresses, shops, carts, wishlists, product_views, orders, shop_followers, product_reviews, return_requests.
+
+3. user_roles
+Chức năng: Bảng trung gian User - Role theo quan hệ N-N.
+Khóa chính: (user_id, role_id).
+FK:
+- user_id -> users.user_id.
+- role_id -> roles.role_id.
+
+4. addresses
+Chức năng: Lưu địa chỉ giao hàng của người dùng.
+FK: user_id -> users.user_id.
+Điểm đã chỉnh:
+- receiver_name, phone, province, district, ward, detail_address được đặt NOT NULL.
+- Có unique partial index để mỗi user chỉ có tối đa một địa chỉ mặc định.
+
+5. shops
+Chức năng: Lưu thông tin cửa hàng.
+FK: owner_id -> users.user_id.
+Ràng buộc:
+- Một user chỉ sở hữu một shop vì owner_id là UNIQUE.
+- rating nằm trong khoảng 0 đến 5.
+- total_followers không âm.
+- status chỉ nhận ACTIVE, INACTIVE, BANNED.
+
+6. shop_followers
+Chức năng: Lưu người dùng theo dõi shop.
+Quan hệ N-N giữa users và shops.
+Khóa chính: (shop_id, user_id).
+
+7. brands
+Chức năng: Lưu danh sách thương hiệu.
+Khóa chính: brand_id.
+brand_name là duy nhất.
+
+8. categories
+Chức năng: Lưu danh mục sản phẩm.
+FK:
+- parent_id -> categories.category_id để tạo cây danh mục.
+Ràng buộc:
+- status chỉ nhận ACTIVE hoặc INACTIVE.
+
+9. products
+Chức năng: Lưu thông tin sản phẩm.
+FK:
+- shop_id -> shops.shop_id.
+- brand_id -> brands.brand_id.
+- category_id -> categories.category_id.
+Ràng buộc:
+- status chỉ nhận ACTIVE, INACTIVE, BANNED, OUT_OF_STOCK.
+- average_rating nằm trong khoảng 0 đến 5.
+- review_count và sold_quantity không âm.
+Được tham chiếu bởi: product_images, product_variants, wishlists, product_views, product_reviews.
+
+10. product_images
+Chức năng: Lưu nhiều ảnh cho một sản phẩm.
+FK: product_id -> products.product_id.
+display_order phải lớn hơn 0.
+
+11. attributes
+Chức năng: Lưu tên thuộc tính như Color, Size, RAM, Storage.
+attribute_name là duy nhất.
+
+12. attribute_values
+Chức năng: Lưu giá trị của thuộc tính.
+Ví dụ: Color có Red, Blue, Black.
+FK: attribute_id -> attributes.attribute_id.
+Ràng buộc: UNIQUE(attribute_id, value_name).
+
+13. product_variants
+Chức năng: Lưu SKU/biến thể sản phẩm.
+FK: product_id -> products.product_id.
+Điểm đã chỉnh:
+- Bỏ cột stock để tránh trùng dữ liệu với bảng inventory.
+- price không âm.
+- original_price phải lớn hơn hoặc bằng price nếu có.
+- weight không âm nếu có.
+- status chỉ nhận ACTIVE hoặc INACTIVE.
+
+14. variant_attribute_values
+Chức năng: Gắn biến thể với các giá trị thuộc tính.
+Ví dụ: SKU A = màu Đen + size 42.
+Quan hệ N-N giữa product_variants và attribute_values.
+
+15. inventory
+Chức năng: Quản lý tồn kho theo từng variant.
+FK: variant_id -> product_variants.variant_id.
+Ràng buộc:
+- Mỗi variant có tối đa một bản ghi inventory.
+- quantity không âm.
+- reserved_quantity không âm.
+- reserved_quantity không được lớn hơn quantity.
+
+16. carts
+Chức năng: Lưu giỏ hàng của người dùng.
+FK: user_id -> users.user_id.
+Ràng buộc: Một user có một cart vì user_id là UNIQUE.
+
+17. cart_items
+Chức năng: Lưu sản phẩm trong giỏ hàng.
+FK:
+- cart_id -> carts.cart_id.
+- variant_id -> product_variants.variant_id.
+Ràng buộc:
+- quantity lớn hơn 0.
+- Một variant không bị lặp trong cùng một cart.
+
+18. wishlists
+Chức năng: Lưu danh sách yêu thích.
+FK:
+- user_id -> users.user_id.
+- product_id -> products.product_id.
+Ràng buộc: UNIQUE(user_id, product_id).
+
+19. product_views
+Chức năng: Lưu lịch sử xem sản phẩm.
+FK:
+- user_id -> users.user_id, cho phép NULL nếu user bị xóa.
+- product_id -> products.product_id.
+
+20. payment_methods
+Chức năng: Lưu phương thức thanh toán như COD, VNPay, MoMo, PayPal, Stripe.
+Được orders.payment_method_id tham chiếu.
+
+21. shipping_methods
+Chức năng: Lưu phương thức vận chuyển.
+Ràng buộc:
+- shipping_fee không âm.
+- estimated_days lớn hơn 0 nếu có.
+
+22. vouchers
+Chức năng: Lưu mã giảm giá toàn sàn hoặc theo shop.
+FK:
+- shop_id -> shops.shop_id, có thể NULL nếu là voucher toàn sàn.
+Ràng buộc:
+- discount_type chỉ nhận PERCENT hoặc FIXED.
+- discount_value lớn hơn 0.
+- min_order_amount không âm.
+- end_at phải sau start_at.
+- used_count không vượt quá usage_limit nếu có giới hạn.
+
+23. orders
+Chức năng: Lưu đơn hàng tổng của người mua.
+FK:
+- user_id -> users.user_id.
+- address_id -> addresses.address_id.
+- payment_method_id -> payment_methods.payment_method_id.
+- shipping_method_id -> shipping_methods.shipping_method_id.
+Ràng buộc:
+- subtotal, shipping_fee, discount, total_amount không âm.
+- total_amount = subtotal + shipping_fee - discount.
+- order_status chỉ nhận PENDING, CONFIRMED, PACKING, SHIPPING, COMPLETED, CANCELLED, RETURNED.
+
+24. order_vouchers
+Chức năng: Lưu voucher được áp dụng cho đơn hàng.
+Quan hệ N-N giữa orders và vouchers.
+
+25. order_shop_groups
+Chức năng: Tách một đơn tổng thành các nhóm theo shop.
+Lý do cần có: Một đơn Shopee có thể chứa sản phẩm từ nhiều shop, mỗi shop có trạng thái xử lý, phí vận chuyển và gói giao riêng.
+FK:
+- order_id -> orders.order_id.
+- shop_id -> shops.shop_id.
+Ràng buộc:
+- UNIQUE(order_id, shop_id).
+- total_amount = subtotal + shipping_fee - discount.
+
+26. order_items
+Chức năng: Lưu chi tiết từng sản phẩm trong đơn.
+FK:
+- order_id -> orders.order_id.
+- order_shop_id -> order_shop_groups.order_shop_id.
+- variant_id -> product_variants.variant_id.
+Ràng buộc:
+- quantity lớn hơn 0.
+- unit_price, discount, subtotal không âm.
+- subtotal = quantity * unit_price - discount.
+
+27. product_reviews
+Chức năng: Lưu đánh giá sản phẩm.
+FK:
+- user_id -> users.user_id.
+- product_id -> products.product_id.
+- order_item_id -> order_items.order_item_id.
+Ràng buộc:
+- rating từ 1 đến 5.
+- order_item_id là UNIQUE để một dòng hàng chỉ được đánh giá một lần.
+- status chỉ nhận VISIBLE hoặc HIDDEN.
+
+28. order_status_history
+Chức năng: Lưu lịch sử thay đổi trạng thái đơn hàng.
+FK: order_id -> orders.order_id.
+Điểm đã chỉnh: status có CHECK giống orders.order_status để tránh lệch dữ liệu.
+
+29. payments
+Chức năng: Lưu thông tin thanh toán.
+FK: order_id -> orders.order_id.
+Ràng buộc:
+- Mỗi order có tối đa một payment.
+- amount không âm.
+- payment_status chỉ nhận PENDING, SUCCESS, FAILED, REFUNDED.
+
+30. shipments
+Chức năng: Lưu thông tin vận chuyển.
+Điểm đã chỉnh:
+- Shipment gắn với order_shop_groups thay vì orders, vì một đơn có thể tách nhiều shop/gói giao.
+FK: order_shop_id -> order_shop_groups.order_shop_id.
+Ràng buộc:
+- tracking_number là duy nhất.
+- shipment_status chỉ nhận PREPARING, SHIPPING, DELIVERED, FAILED, RETURNED.
+
+31. return_requests
+Chức năng: Lưu yêu cầu trả hàng/hoàn hàng.
+FK:
+- order_item_id -> order_items.order_item_id.
+- user_id -> users.user_id.
+Ràng buộc:
+- reason bắt buộc.
+- return_status chỉ nhận REQUESTED, APPROVED, REJECTED, RETURNING, RECEIVED, REFUNDED.
+
+32. refunds
+Chức năng: Lưu thông tin hoàn tiền.
+FK:
+- return_id -> return_requests.return_id.
+- payment_id -> payments.payment_id.
+Ràng buộc:
+- Mỗi return_request có tối đa một refund.
+- amount không âm.
+- refund_status chỉ nhận PENDING, SUCCESS, FAILED.
+
+Luồng nghiệp vụ chính:
+User -> Cart -> CartItems -> Orders -> OrderShopGroups -> OrderItems -> Payment -> Shipment -> Completed
+
+Luồng sản phẩm:
+Shop -> Products -> ProductVariants -> Inventory
+Product -> ProductImages
+Product -> ProductReviews
+Product -> Wishlist
+Product -> Views
+
+Luồng khuyến mãi:
+Voucher -> OrderVouchers -> Orders
+
+Luồng sau bán hàng:
+OrderItems -> ReturnRequests -> Refunds
+
+Đánh giá sau khi chỉnh:
+Database phù hợp hơn cho đề tài thương mại điện tử dạng Shopee Lite. Schema đã có các phần quan trọng: quản lý shop, sản phẩm, biến thể, tồn kho, giỏ hàng, đặt hàng, voucher, thanh toán, vận chuyển, đánh giá, trả hàng và hoàn tiền.
