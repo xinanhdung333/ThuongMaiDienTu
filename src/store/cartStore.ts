@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { CartItemWithDetails, Voucher, ShippingMethod } from '@/types';
 import { api } from '@/services/api';
+import { db } from '@/services/mockDb';
 
 interface CartState {
   items: any[];
@@ -247,7 +248,15 @@ export const useCartStore = create<CartState>((set, get) => ({
       };
     });
 
-    const order = null as any;
+    const order = db.createOrder(
+      userId,
+      addressId,
+      paymentMethodId,
+      shippingMethod.shipping_method_id,
+      orderItemsParam,
+      vouchersAppliedParam,
+      note
+    );
 
     if (order) {
       // Reset checkout states
