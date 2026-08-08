@@ -160,6 +160,16 @@ export const ProductDetail: React.FC = () => {
     return selectedVariant?.attributeValues?.some(av => av.attribute_name === attrName && av.value_name === valName);
   };
 
+  const getVariantLabel = (variant: ProductVariantWithInventory) => {
+    if (variant.attributeValues && variant.attributeValues.length > 0) {
+      return variant.attributeValues.map(av => av.value_name).join(' / ');
+    }
+    if (variant.sku) {
+      return variant.sku;
+    }
+    return `Variant ${product.variants?.findIndex(v => v.variant_id === variant.variant_id) + 1}`;
+  };
+
   const selectVariantByAttr = (attrName: string, valName: string) => {
     // Find variant matches for selected values
     const currentValues = selectedVariant?.attributeValues || [];
@@ -184,6 +194,14 @@ export const ProductDetail: React.FC = () => {
         setSelectedVariant(fallback);
         setQuantity(1);
       }
+    }
+  };
+
+  const selectVariantById = (variantId: string) => {
+    const variant = product.variants.find(v => v.variant_id === variantId);
+    if (variant) {
+      setSelectedVariant(variant);
+      setQuantity(1);
     }
   };
 
@@ -318,7 +336,7 @@ export const ProductDetail: React.FC = () => {
           </p>
 
           {/* Variants Selectors */}
-          {Object.keys(allAttributesMap).length > 0 && (
+          {Object.keys(allAttributesMap).length > 0 ? (
             <div className="flex flex-col gap-4 py-2 border-y border-slate-100 dark:border-slate-800/80">
               {Object.keys(allAttributesMap).map(attrName => (
                 <div key={attrName} className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -344,7 +362,32 @@ export const ProductDetail: React.FC = () => {
                 </div>
               ))}
             </div>
-          )}
+          ) : product.variants.length > 1 ? (
+            <div className="py-4 border-y border-slate-100 dark:border-slate-800/80">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Choose a variant</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {product.variants.map(variant => (
+                  <button
+                    key={variant.variant_id}
+                    onClick={() => selectVariantById(variant.variant_id)}
+                    className={`w-full text-left p-4 rounded-2xl border text-xs font-bold transition-all ${
+                      selectedVariant?.variant_id === variant.variant_id
+                        ? 'border-primary bg-primary-light/10 text-primary dark:bg-primary/5'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{getVariantLabel(variant)}</span>
+                      <span className="font-black">₫{Number(variant.price || 0).toLocaleString('vi-VN')}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                      SKU: {variant.sku || 'N/A'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {/* Quantity selector & Inventory check */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
