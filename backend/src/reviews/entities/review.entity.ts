@@ -1,6 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-@Entity('reviews')
+@Entity('product_reviews')
 export class Review {
   @PrimaryGeneratedColumn('uuid')
   review_id: string;
@@ -11,21 +11,21 @@ export class Review {
   @Column('uuid')
   user_id: string;
 
+  @Column('uuid', { nullable: true })
+  order_item_id?: string | null;
+
   @Column('int')
   rating: number;
 
-  @Column({ length: 1000 })
-  title: string;
+  @Column({ type: 'text', nullable: true })
+  comment?: string | null;
 
-  @Column({ length: 2000 })
-  comment: string;
-
-  @Column({ type: 'jsonb', nullable: true })
-  images?: string[];
-
-  @Column({ length: 20, default: 'PUBLISHED' })
+  @Column({ length: 20, default: 'VISIBLE' })
   status: string;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: string;
+
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  updated_at: string;
 }

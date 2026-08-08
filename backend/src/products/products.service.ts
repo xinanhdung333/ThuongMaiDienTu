@@ -118,14 +118,12 @@ export class ProductsService {
       status: payload.status || 'ACTIVE',
     });
     const saved = await this.variantRepository.save(variant);
-    if (payload.inventory) {
-      const inventory = this.inventoryRepository.create({
-        variant_id: saved.variant_id,
-        quantity: payload.inventory.quantity || 0,
-        reserved_quantity: payload.inventory.reserved_quantity || 0,
-      });
-      await this.inventoryRepository.save(inventory);
-    }
+    const inventory = this.inventoryRepository.create({
+      variant_id: saved.variant_id,
+      quantity: Number(payload.inventory?.quantity ?? payload.stock ?? 99),
+      reserved_quantity: Number(payload.inventory?.reserved_quantity ?? 0),
+    });
+    await this.inventoryRepository.save(inventory);
     return this.variantRepository.findOne({ where: { variant_id: saved.variant_id }, relations: ['inventory'] });
   }
 

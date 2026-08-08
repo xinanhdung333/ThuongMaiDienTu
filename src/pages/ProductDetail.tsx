@@ -86,8 +86,12 @@ export const ProductDetail: React.FC = () => {
   const isFavorite = wishlist.some(p => p.product_id === product.product_id);
   const price = selectedVariant?.price || 0;
   const originalPrice = selectedVariant?.original_price;
-  const isOutOfStock = !selectedVariant?.inventory || selectedVariant.inventory.quantity - selectedVariant.inventory.reserved_quantity <= 0;
-  const maxAvailable = selectedVariant?.inventory ? selectedVariant.inventory.quantity - selectedVariant.inventory.reserved_quantity : 0;
+  const maxAvailable = selectedVariant?.inventory
+    ? selectedVariant.inventory.quantity - selectedVariant.inventory.reserved_quantity
+    : selectedVariant?.status === 'ACTIVE'
+      ? 99
+      : 0;
+  const isOutOfStock = !selectedVariant || maxAvailable <= 0;
 
   // Zoom Math
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -130,9 +134,9 @@ export const ProductDetail: React.FC = () => {
       return;
     }
     if (selectedVariant) {
-      const success = await addItem(user.user_id, selectedVariant.variant_id, quantity);
+      const success = await addItem(user.user_id, selectedVariant.variant_id, quantity, true);
       if (success) {
-        navigate('/cart');
+        navigate('/checkout');
       } else {
         toast('Insufficient stock available.', 'error');
       }

@@ -10,8 +10,8 @@ interface CartState {
   paymentMethodId: string;
   note: string;
   
-  loadCart: (userId: string) => void;
-  addItem: (userId: string, variantId: string, quantity: number) => Promise<boolean>;
+  loadCart: (userId: string) => Promise<void>;
+  addItem: (userId: string, variantId: string, quantity: number, selectAdded?: boolean) => Promise<boolean>;
   updateQty: (cartItemId: string, newQty: number) => Promise<boolean>;
   removeItem: (cartItemId: string) => void;
   toggleSelect: (cartItemId: string) => void;
@@ -51,19 +51,32 @@ export const useCartStore = create<CartState>((set, get) => ({
   paymentMethodId: 'pay-cod',
   note: '',
 
-  loadCart: (userId) => {
-    api.carts.get(userId).then((cart: any) => {
+  loadCart: async (userId) => {
+    try {
+      const cart = await api.carts.get(userId);
       const validItems = (cart.items || []).filter((item: any) => 
         item && item.shop && item.shop.shop_id && item.product && item.variant
       );
       set({ items: validItems });
-    }).catch(() => set({ items: [] }));
+    } catch {
+      set({ items: [] });
+    }
   },
 
-  addItem: async (userId, variantId, quantity) => {
+  addItem: async (userId, variantId, quantity, selectAdded = false) => {
     try {
       await api.carts.addItem(userId, variantId, quantity);
-      get().loadCart(userId);
+      const cart = await api.carts.get(userId);
+      const validItems = (cart.items || []).filter((item: any) => 
+        item && item.shop && item.shop.shop_id && item.product && item.variant
+      );
+      const addedItem = validItems.find((item: any) => item.variant?.variant_id === variantId);
+      set((state) => ({
+        items: validItems,
+        selectedItemIds: selectAdded && addedItem
+          ? [addedItem.cart_item_id]
+          : state.selectedItemIds,
+      }));
       return true;
     } catch {
       return false;

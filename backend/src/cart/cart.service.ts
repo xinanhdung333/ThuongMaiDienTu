@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Cart } from './entities/cart.entity';
@@ -6,6 +6,7 @@ import { CartItem } from './entities/cart-item.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
 import { Product } from '../products/entities/product.entity';
 import { Shop } from '../shops/entities/shop.entity';
+import { Inventory } from '../products/entities/inventory.entity';
 
 @Injectable()
 export class CartService {
@@ -14,6 +15,10 @@ export class CartService {
   constructor(
     @InjectRepository(Cart) private readonly cartRepository: Repository<Cart>,
     @InjectRepository(CartItem) private readonly cartItemRepository: Repository<CartItem>,
+    @InjectRepository(ProductVariant) private readonly variantRepository: Repository<ProductVariant>,
+    @InjectRepository(Product) private readonly productRepository: Repository<Product>,
+    @InjectRepository(Shop) private readonly shopRepository: Repository<Shop>,
+    @InjectRepository(Inventory) private readonly inventoryRepository: Repository<Inventory>,
     private dataSource: DataSource,
   ) {}
 
@@ -26,25 +31,31 @@ export class CartService {
 
     if (cart.items && cart.items.length > 0) {
       try {
-        const variantRepo = this.dataSource.getRepository(ProductVariant);
-        const productRepo = this.dataSource.getRepository(Product);
-        const shopRepo = this.dataSource.getRepository(Shop);
-
         for (let i = 0; i < cart.items.length; i++) {
           const item = cart.items[i];
-          const variant = await variantRepo.findOne({
+          const variant = await this.variantRepository.findOne({
             where: { variant_id: item.variant_id },
             relations: ['attributes', 'attributes.value', 'attributes.value.attribute', 'inventory']
           });
           if (variant) {
+            (variant as any).price = Number(variant.price);
+            (variant as any).original_price = variant.original_price === null || variant.original_price === undefined
+              ? undefined
+              : Number(variant.original_price);
+            (variant as any).attributeValues = (variant.attributes || []).map((entry: any) => ({
+              attribute_name: entry.value?.attribute?.attribute_name || 'Option',
+              value_name: entry.value?.value_name || 'Default',
+              value_id: entry.value_id || entry.value?.value_id || '',
+            }));
             (item as any).variant = variant;
-            const product = await productRepo.findOne({
+            const product = await this.productRepository.findOne({
               where: { product_id: (variant as any).product_id },
               relations: ['images']
             });
             if (product) {
+              (product as any).thumbnail = product.thumbnail || product.images?.[0]?.image_url || '';
               (item as any).product = product;
-              const shop = await shopRepo.findOne({
+              const shop = await this.shopRepository.findOne({
                 where: { shop_id: (product as any).shop_id }
               });
               if (shop) {
@@ -55,7 +66,8 @@ export class CartService {
         }
       } catch (error) {
         this.logger.error('Failed to fetch item details for cart', error);
-        (cart as any).debug_error = error.message || String(error);
+        const debugError = error instanceof Error ? error.message : String(error);
+        (cart as any).debug_error = debugError;
       }
     }
 
@@ -63,13 +75,35 @@ export class CartService {
   }
 
   async addItem(userId: string, variant_id: string, quantity: number) {
+    const safeQuantity = Math.max(1, Number(quantity) || 1);
+    const variant = await this.variantRepository.findOne({
+      where: { variant_id },
+      relations: ['inventory'],
+    });
+    if (!variant) throw new NotFoundException('Variant not found');
+
+    let inventory = variant.inventory?.[0];
+    if (!inventory) {
+      inventory = await this.inventoryRepository.save(this.inventoryRepository.create({
+        variant_id,
+        quantity: 99,
+        reserved_quantity: 0,
+      }));
+    }
+
     const cart = await this.getCart(userId);
     const existing = await this.cartItemRepository.findOne({ where: { cart_id: cart.cart_id, variant_id } });
+    const nextQuantity = (existing?.quantity || 0) + safeQuantity;
+    const available = inventory.quantity - inventory.reserved_quantity;
+    if (available < nextQuantity) {
+      throw new BadRequestException('Insufficient stock available');
+    }
+
     if (existing) {
-      existing.quantity += quantity;
+      existing.quantity = nextQuantity;
       return this.cartItemRepository.save(existing);
     }
-    const item = this.cartItemRepository.create({ cart_id: cart.cart_id, variant_id, quantity });
+    const item = this.cartItemRepository.create({ cart_id: cart.cart_id, variant_id, quantity: safeQuantity });
     return this.cartItemRepository.save(item);
   }
 
