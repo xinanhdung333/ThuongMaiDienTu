@@ -1,6 +1,7 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Order } from './order.entity';
 import { OrderShopGroup } from './order-shop-group.entity';
+import { ProductVariant } from '../../products/entities/product-variant.entity';
 
 @Entity('order_items')
 export class OrderItem {
@@ -28,11 +29,15 @@ export class OrderItem {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   subtotal: number;
 
-  @ManyToOne(() => Order, (order) => order.shopGroups)
+  @ManyToOne(() => Order, (order) => order.items)
   @JoinColumn({ name: 'order_id' })
   order: Order;
 
   @ManyToOne(() => OrderShopGroup, (group) => group.items)
   @JoinColumn({ name: 'order_shop_id' })
   orderShopGroup: OrderShopGroup;
+
+  @ManyToOne(() => ProductVariant, { eager: true })
+  @JoinColumn({ name: 'variant_id' })
+  variant: ProductVariant;
 }

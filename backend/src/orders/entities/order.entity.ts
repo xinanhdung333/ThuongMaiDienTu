@@ -1,6 +1,8 @@
-import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { OrderShopGroup } from './order-shop-group.entity';
 import { OrderStatusHistory } from './order-status-history.entity';
+import { OrderItem } from './order-item.entity';
+import { Address } from '../../users/entities/address.entity';
 
 @Entity('orders')
 export class Order {
@@ -46,8 +48,15 @@ export class Order {
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   updated_at: string;
 
-  @OneToMany(() => OrderShopGroup, (group) => group.order)
+  @OneToMany(() => OrderShopGroup, (group) => group.order, { cascade: true })
   shopGroups: OrderShopGroup[];
+
+  @OneToMany(() => OrderItem, (item) => item.order)
+  items: OrderItem[];
+
+  @ManyToOne(() => Address, (address) => address.address_id, { nullable: true })
+  @JoinColumn({ name: 'address_id' })
+  address?: Address;
 
   @OneToMany(() => OrderStatusHistory, (history) => history.order)
   statusHistory: OrderStatusHistory[];

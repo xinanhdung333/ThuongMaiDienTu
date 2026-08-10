@@ -1,6 +1,7 @@
-import { Column, Entity, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
+import { Shop } from '../../shops/entities/shop.entity';
 
 @Entity('order_shop_groups')
 export class OrderShopGroup {
@@ -35,8 +36,13 @@ export class OrderShopGroup {
   updated_at: string;
 
   @ManyToOne(() => Order, (order) => order.shopGroups)
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 
-  @OneToMany(() => OrderItem, (item) => item.orderShopGroup)
+  @ManyToOne(() => Shop)
+  @JoinColumn({ name: 'shop_id' })
+  shop: Shop;
+
+  @OneToMany(() => OrderItem, (item) => item.orderShopGroup, { cascade: true })
   items: OrderItem[];
 }

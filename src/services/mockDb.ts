@@ -214,7 +214,7 @@ const seedProducts: Product[] = [
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   },
-  
+
   // Shop 2 Fashion
   {
     product_id: 'prod-4',
@@ -314,11 +314,11 @@ const seedProductImages: ProductImage[] = [
 
   // Mouse
   { image_id: 'img-3-1', product_id: 'prod-3', image_url: 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=800&q=80', display_order: 1, created_at: new Date().toISOString() },
-  
+
   // T-Shirt
   { image_id: 'img-4-1', product_id: 'prod-4', image_url: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&q=80', display_order: 1, created_at: new Date().toISOString() },
   { image_id: 'img-4-2', product_id: 'prod-4', image_url: 'https://images.unsplash.com/photo-1581655353564-df123a1eb820?w=800&q=80', display_order: 2, created_at: new Date().toISOString() },
-  
+
   // Joggers
   { image_id: 'img-5-1', product_id: 'prod-5', image_url: 'https://images.unsplash.com/photo-1552346154-21d32810aba3?w=800&q=80', display_order: 1, created_at: new Date().toISOString() },
 
@@ -721,7 +721,7 @@ export const initializeDb = () => {
   if (!getItem('lumina_return_requests')) setItem('lumina_return_requests', []);
   if (!getItem('lumina_refunds')) setItem('lumina_refunds', []);
   if (!getItem('lumina_audit_logs')) setItem('lumina_audit_logs', []);
-  
+
   if (!getItem(KEYS.CURRENT_USER_ID)) {
     localStorage.setItem(KEYS.CURRENT_USER_ID, 'user-buyer'); // default to Emma Watson
   }
@@ -764,7 +764,7 @@ export const db = {
     const productsSold = orderItems.reduce((s, it) => s + (it.quantity || 0), 0);
 
     const products = db.getProducts().filter(p => p.shop.shop_id === shopId);
-    const topProducts = products.slice().sort((a,b) => (b.sold_quantity || 0) - (a.sold_quantity || 0)).slice(0,5);
+    const topProducts = products.slice().sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0)).slice(0, 5);
 
     const views = db.get<any[]>('lumina_views').filter(v => v.shop_id === shopId);
     const totalViews = views.reduce((s, v) => s + (v.count || 0), 0);
@@ -806,7 +806,7 @@ export const db = {
       const day = new Date();
       day.setDate(day.getDate() - i);
       const dayKey = day.toISOString().slice(0, 10);
-      const groupsForDay = groups.filter(g => (new Date(g.created_at).toISOString().slice(0,10)) === dayKey);
+      const groupsForDay = groups.filter(g => (new Date(g.created_at).toISOString().slice(0, 10)) === dayKey);
       const revenue = groupsForDay.reduce((s, g) => s + (g.total_amount || 0), 0);
       const orders = groupsForDay.length;
       result.push({ date: dayKey, revenue, orders });
@@ -870,7 +870,7 @@ export const db = {
     };
     users.push(newUser);
     db.set(KEYS.USERS, users);
-    
+
     // Auto-create shop placeholder if register role changes later
     return newUser;
   },
@@ -920,7 +920,7 @@ export const db = {
     if (index !== -1) {
       const address = addresses[index];
       addresses.splice(index, 1);
-      
+
       // If we deleted the default, set another default
       if (address.is_default && addresses.length > 0) {
         const nextDefault = addresses.find(a => a.user_id === address.user_id);
@@ -961,7 +961,7 @@ export const db = {
     };
     shops.push(newShop);
     db.set(KEYS.SHOPS, shops);
-    
+
     // Add Seller role to user
     const users = db.get<User[]>(KEYS.USERS);
     const userIndex = users.findIndex(u => u.user_id === ownerId);
@@ -1108,8 +1108,8 @@ export const db = {
       const shop = shops.find(s => s.shop_id === p.shop_id) || seedShops[0];
       const brand = brands.find(b => b.brand_id === p.brand_id);
       const category = categories.find(c => c.category_id === p.category_id);
-      const pImages = images.filter(i => i.product_id === p.product_id).sort((a,b) => a.display_order - b.display_order);
-      
+      const pImages = images.filter(i => i.product_id === p.product_id).sort((a, b) => a.display_order - b.display_order);
+
       const pVariants = variants.filter(v => v.product_id === p.product_id).map(v => {
         const inv = inventories.find(i => i.variant_id === v.variant_id);
         return { ...v, inventory: inv };
@@ -1285,7 +1285,7 @@ export const db = {
 
   getInventoryHistory: (variantId: string) => {
     const history = db.get<any[]>(KEYS.INVENTORY_HISTORY);
-    return history.filter(h => h.variant_id === variantId).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return history.filter(h => h.variant_id === variantId).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
   // Product images helper
@@ -1372,7 +1372,7 @@ export const db = {
   addToCart: (userId: string, variantId: string, quantity: number): boolean => {
     const allCartItems = db.get<CartItem[]>(KEYS.CART_ITEMS);
     const inventories = db.get<Inventory[]>(KEYS.INVENTORY);
-    
+
     // Check available stock
     const stock = inventories.find(i => i.variant_id === variantId);
     if (!stock || (stock.quantity - stock.reserved_quantity) < quantity) {
@@ -1406,13 +1406,13 @@ export const db = {
       const item = allCartItems[idx];
       const inventories = db.get<Inventory[]>(KEYS.INVENTORY);
       const stock = inventories.find(i => i.variant_id === item.variant_id);
-      
+
       if (newQty <= 0) {
         allCartItems.splice(idx, 1);
         db.set(KEYS.CART_ITEMS, allCartItems);
         return true;
       }
-      
+
       if (stock && (stock.quantity - stock.reserved_quantity) >= newQty) {
         allCartItems[idx].quantity = newQty;
         db.set(KEYS.CART_ITEMS, allCartItems);
@@ -1472,7 +1472,7 @@ export const db = {
     const v: Voucher = {
       voucher_id: generateId(),
       shop_id: voucher.shop_id || undefined,
-      voucher_code: (voucher.voucher_code || `V${Math.random().toString(36).substring(2,8).toUpperCase()}`).toUpperCase(),
+      voucher_code: (voucher.voucher_code || `V${Math.random().toString(36).substring(2, 8).toUpperCase()}`).toUpperCase(),
       voucher_name: voucher.voucher_name || 'Untitled Voucher',
       discount_type: voucher.discount_type || 'FIXED',
       discount_value: voucher.discount_value || 0,
@@ -1500,15 +1500,15 @@ export const db = {
   validateVoucher: (code: string, shopId?: string, orderAmount: number = 0): { valid: boolean; discount: number; message: string; voucher?: Voucher } => {
     const vouchers = db.getVouchers();
     const v = vouchers.find(x => x.voucher_code.toUpperCase() === code.trim().toUpperCase());
-    
+
     if (!v) return { valid: false, discount: 0, message: 'Invalid voucher code.' };
     if (v.status !== 'ACTIVE') return { valid: false, discount: 0, message: 'Voucher is no longer active.' };
-    
+
     const now = new Date();
     if (now < new Date(v.start_at) || now > new Date(v.end_at)) {
       return { valid: false, discount: 0, message: 'Voucher has expired or is not yet active.' };
     }
-    
+
     if (v.usage_limit !== undefined && v.used_count >= v.usage_limit) {
       return { valid: false, discount: 0, message: 'Voucher usage limit reached.' };
     }
@@ -1537,7 +1537,7 @@ export const db = {
   // ORDERS AND TRANSACTIONS (Multi-shop package splits)
   getOrders: (userId: string): OrderWithDetails[] => {
     const orders = db.get<Order[]>(KEYS.ORDERS).filter(o => o.user_id === userId);
-    return orders.map(order => db.getOrderDetails(order.order_id)!).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return orders.map(order => db.getOrderDetails(order.order_id)!).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
   getOrderDetails: (orderId: string): OrderWithDetails | null => {
     const orders = db.get<Order[]>(KEYS.ORDERS);
@@ -1563,7 +1563,7 @@ export const db = {
     const payments = db.get<Payment[]>(KEYS.PAYMENTS);
     const payment = payments.find(p => p.order_id === orderId);
 
-    const histories = db.get<OrderStatusHistory[]>(KEYS.ORDER_HISTORY).filter(h => h.order_id === orderId).sort((a,b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime());
+    const histories = db.get<OrderStatusHistory[]>(KEYS.ORDER_HISTORY).filter(h => h.order_id === orderId).sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime());
 
     const shops = db.get<Shop[]>(KEYS.SHOPS);
     const groupItems = db.get<OrderItem[]>(KEYS.ORDER_ITEMS);
@@ -1575,7 +1575,7 @@ export const db = {
       .map(group => {
         const shop = shops.find(s => s.shop_id === group.shop_id) || seedShops[0];
         const shipment = shipments.find(s => s.order_shop_id === group.order_shop_id);
-        
+
         const items = groupItems.filter(i => i.order_shop_id === group.order_shop_id).map(item => {
           let matchedProd: Product | null = null;
           let matchedVar: ProductVariant | null = null;
@@ -1617,7 +1617,7 @@ export const db = {
   // ADMIN: get all orders
   getAllOrders: (): OrderWithDetails[] => {
     const orders = db.get<Order[]>(KEYS.ORDERS);
-    return orders.map(o => db.getOrderDetails(o.order_id)!).filter(Boolean).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return orders.map(o => db.getOrderDetails(o.order_id)!).filter(Boolean).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
   createOrder: (
     userId: string,
@@ -1631,7 +1631,7 @@ export const db = {
     // 1. Fetch tables
     const inventories = db.get<Inventory[]>(KEYS.INVENTORY);
     const products = db.getProducts();
-    
+
     // 2. Validate inventory availability
     for (const item of checkoutItems) {
       const inv = inventories.find(i => i.variant_id === item.variantId);
@@ -1833,7 +1833,7 @@ export const db = {
     requests[idx].updated_at = new Date().toISOString();
     if (note) requests[idx].note = note;
     db.set('lumina_return_requests', requests);
-    db.recordAudit(adminId || 'system', `Return ${returnId} set to ${status}${note ? ': '+note : ''}`, 'RETURN_REQUEST_UPDATED');
+    db.recordAudit(adminId || 'system', `Return ${returnId} set to ${status}${note ? ': ' + note : ''}`, 'RETURN_REQUEST_UPDATED');
     return requests[idx];
   },
   // Refund recording (mock)
@@ -1941,7 +1941,7 @@ export const db = {
     if (status === 'CANCELLED') {
       const orderItems = db.get<OrderItem[]>(KEYS.ORDER_ITEMS).filter(i => i.order_id === orderId);
       const inventories = db.get<Inventory[]>(KEYS.INVENTORY);
-      
+
       orderItems.forEach(item => {
         const inv = inventories.find(i => i.variant_id === item.variant_id);
         if (inv) {
@@ -1998,7 +1998,7 @@ export const db = {
     return groups.map(g => {
       const order = orders.find(o => o.order_id === g.order_id)!;
       const shipment = shipments.find(s => s.order_shop_id === g.order_shop_id);
-      
+
       const items = orderItems.filter(i => i.order_shop_id === g.order_shop_id).map(item => {
         let matchedProd: Product | null = null;
         let matchedVar: ProductVariant | null = null;
@@ -2027,7 +2027,7 @@ export const db = {
         items,
         shop: seedShops.find(s => s.shop_id === shopId)!
       };
-    }).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
   updateSellerOrderStatus: (orderShopId: string, status: OrderShopGroup['group_status']): boolean => {
     const groups = db.get<OrderShopGroup[]>(KEYS.ORDER_GROUPS);
@@ -2057,7 +2057,7 @@ export const db = {
     // Check if all packages in the parent order are resolved to update parent order status
     const parentOrderId = groups[idx].order_id;
     const parentGroupPackages = groups.filter(g => g.order_id === parentOrderId);
-    
+
     const allStatuses = parentGroupPackages.map(p => p.group_status);
     const uniqueStatuses = Array.from(new Set(allStatuses));
 
@@ -2083,7 +2083,7 @@ export const db = {
 
     return reviews.map(r => {
       const user = users.find(u => u.user_id === r.user_id) || { full_name: 'Anonymous', avatar: '' };
-      
+
       // try to find variant details if order_item_id is mapped
       let variantName = '';
       if (r.order_item_id) {

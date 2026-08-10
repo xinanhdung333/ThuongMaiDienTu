@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -6,8 +6,8 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  findAll() {
-    return this.ordersService.findAll();
+  findAll(@Query('user_id') user_id?: string) {
+    return this.ordersService.findAll(user_id);
   }
 
   @Get(':id')

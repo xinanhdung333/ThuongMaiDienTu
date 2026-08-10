@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { CartItemWithDetails, Voucher, ShippingMethod } from '@/types';
 import { api } from '@/services/api';
-import { db } from '@/services/mockDb';
 
 interface CartState {
   items: any[];
@@ -214,57 +213,58 @@ export const useCartStore = create<CartState>((set, get) => ({
   checkout: async (userId, addressId) => {
     const { items, selectedItemIds, vouchers, shippingMethod, paymentMethodId, note } = get();
     const checkoutItems = items.filter(i => selectedItemIds.includes(i.cart_item_id));
-    
     if (checkoutItems.length === 0) return null;
 
-    // Build values for db.createOrder
-    const orderItemsParam = checkoutItems.map(i => ({
-      cartItemId: i.cart_item_id,
-      shopId: i.shop.shop_id,
-      variantId: i.variant.variant_id,
-      quantity: i.quantity,
-      price: i.variant.price
+    const calculations = get().getCalculations();
+
+    const shopGroups = Object.values(checkoutItems.reduce((groups: Record<string, any>, item: any) => {
+      const shopId = item.shop?.shop_id;
+      if (!shopId) return groups;
+      if (!groups[shopId]) {
+        groups[shopId] = {
+          shop_id: shopId,
+          subtotal: 0,
+          shipping_fee: shippingMethod.shipping_fee,
+          discount: 0,
+          total_amount: 0,
+          items: [] as any[],
+        };
+      }
+      groups[shopId].subtotal += item.variant.price * item.quantity;
+      groups[shopId].items.push({
+        variant_id: item.variant.variant_id,
+        quantity: item.quantity,
+        unit_price: item.variant.price,
+        discount: 0,
+        subtotal: item.variant.price * item.quantity,
+      });
+      return groups;
+    }, {} as Record<string, any>)).map((group: any) => ({
+      ...group,
+      total_amount: Math.max(0, group.subtotal + group.shipping_fee - group.discount),
     }));
 
-    // Calculate applied discounts for params
-    const calculations = get().getCalculations();
-    const vouchersAppliedParam = vouchers.map(v => {
-      let d = 0;
-      if (v.shop_id) {
-        const shopSub = checkoutItems
-          .filter((i: any) => i.shop?.shop_id === v.shop_id)
-          .reduce((sum: number, i: any) => sum + (i.variant?.price || 0) * i.quantity, 0);
-        d = v.discount_type === 'FIXED' ? v.discount_value : (shopSub * v.discount_value) / 100;
-        if (v.max_discount) d = Math.min(d, v.max_discount);
-      } else {
-        d = v.discount_type === 'FIXED' ? v.discount_value : (calculations.subtotal * v.discount_value) / 100;
-        if (v.max_discount) d = Math.min(d, v.max_discount);
-      }
-      
-      return {
-        shopId: v.shop_id,
-        code: v.voucher_code,
-        discount: d
-      };
-    });
+    const payload = {
+      user_id: userId,
+      address_id: addressId,
+      payment_method_id: paymentMethodId,
+      shipping_method_id: shippingMethod.shipping_method_id,
+      subtotal: calculations.subtotal,
+      shipping_fee: calculations.shippingFee,
+      discount: calculations.discount,
+      total_amount: calculations.totalAmount,
+      note,
+      shopGroups,
+    };
 
-    const order = db.createOrder(
-      userId,
-      addressId,
-      paymentMethodId,
-      shippingMethod.shipping_method_id,
-      orderItemsParam,
-      vouchersAppliedParam,
-      note
-    );
-
-    if (order) {
-      // Reset checkout states
+    try {
+      const createdOrder = await api.orders.create(payload as any);
+      await api.carts.clear(userId);
       set({ selectedItemIds: [], vouchers: [], note: '' });
-      get().loadCart(userId);
-      return order.order_id;
+      await get().loadCart(userId);
+      return createdOrder.order_id;
+    } catch {
+      return null;
     }
-
-    return null;
   }
 }));

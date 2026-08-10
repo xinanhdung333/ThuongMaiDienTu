@@ -1,4 +1,4 @@
-import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Order } from './order.entity';
 
 @Entity('order_status_history')
@@ -19,5 +19,6 @@ export class OrderStatusHistory {
   changed_at: string;
 
   @ManyToOne(() => Order, (order) => order.statusHistory)
+  @JoinColumn({ name: 'order_id' })
   order: Order;
 }

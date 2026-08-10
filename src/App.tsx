@@ -118,6 +118,14 @@ const router = createBrowserRouter([
           </ProtectedRoute>
         ) 
       },
+      {
+        path: 'orders/:orderId',
+        element: (
+          <ProtectedRoute>
+            <Suspense fallback={<div className="p-8 text-center">Loading...</div>}><OrderDetail /></Suspense>
+          </ProtectedRoute>
+        )
+      },
       { 
         path: 'store/register', 
         element: (

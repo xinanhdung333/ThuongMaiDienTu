@@ -8,10 +8,12 @@ import type {
   ProductImage,
   Voucher,
   Order,
+  OrderWithDetails,
   OrderItem,
   Payment,
   Shipment,
   ProductReview,
+  Notification,
 } from '@/types';
 
 interface Promotion {
@@ -221,12 +223,13 @@ const wishlist = {
 };
 
 const orders = {
-  list: async () => {
-    const { data } = await client.get<Order[]>('/orders');
+  list: async (userId?: string) => {
+    const params = userId ? { user_id: userId } : undefined;
+    const { data } = await client.get<OrderWithDetails[]>('/orders', { params });
     return data;
   },
   get: async (id: string) => {
-    const { data } = await client.get<Order>(`/orders/${id}`);
+    const { data } = await client.get<OrderWithDetails>(`/orders/${id}`);
     return data;
   },
   create: async (payload: Partial<Order> & { items: Array<Partial<OrderItem>> }) => {

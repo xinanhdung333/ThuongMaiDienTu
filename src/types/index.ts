@@ -256,6 +256,17 @@ export interface Payment {
   created_at: string;
 }
 
+export interface Notification {
+  notification_id: string;
+  recipient_id: string;
+  title: string;
+  content: string;
+  status: 'UNREAD' | 'READ';
+  type: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
 export interface Shipment {
   shipment_id: string;
   order_shop_id: string;
