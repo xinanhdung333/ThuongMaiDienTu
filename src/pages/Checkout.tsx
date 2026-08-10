@@ -3,10 +3,11 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useCartStore } from '@/store/cartStore';
 import { useToast } from '@/context/ToastContext';
+import { api } from '@/services/api';
 import { ShippingMethod, Address } from '@/types';
 import { 
   MapPin, CreditCard, Truck, Receipt, MessageSquare, ChevronRight, 
-  Plus, Check, Percent, ArrowLeft, Loader2, Sparkles, HelpCircle
+  Plus, Check, Percent, ArrowLeft, Loader2, Sparkles, Smartphone, Building2, Copy, CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -36,11 +37,31 @@ const SHIPPING_METHODS: ShippingMethod[] = [
 
 const PAYMENT_METHODS = [
   { id: 'pay-cod', name: 'Cash on Delivery (COD)', desc: 'Pay with cash upon arrival.' },
-  { id: 'pay-vnpay', name: 'VNPay QR', desc: 'Scan and pay instantly.' },
-  { id: 'pay-momo', name: 'MoMo Wallet', desc: 'Fast mobile payment app.' },
+  { id: 'pay-bank-qr', name: 'Bank QR Transfer', desc: 'Scan with any banking app.' },
+  { id: 'pay-momo', name: 'MoMo Wallet', desc: 'Scan with MoMo and confirm.' },
   { id: 'pay-paypal', name: 'PayPal Account', desc: 'Secure global transaction.' },
   { id: 'pay-stripe', name: 'Credit/Debit Card (Stripe)', desc: 'All major cards supported.' }
 ];
+
+const BANK_ACCOUNT = {
+  bankName: 'MB Bank',
+  bankBin: '970422',
+  accountNumber: '0765897253',
+  accountName: 'PHAM NGOC TIEN',
+};
+
+const MOMO_ACCOUNT = {
+  walletName: 'Lumina Marketplace',
+  phone: '0901234567',
+};
+
+const isQrPayment = (methodId: string) => ['pay-bank-qr', 'pay-momo', 'pay-vnpay'].includes(methodId);
+
+const buildQrImageUrl = (data: string) =>
+  `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=12&data=${encodeURIComponent(data)}`;
+
+const buildBankQrUrl = (amount: number, content: string) =>
+  `https://img.vietqr.io/image/${BANK_ACCOUNT.bankBin}-${BANK_ACCOUNT.accountNumber}-compact2.png?amount=${Math.round(amount)}&addInfo=${encodeURIComponent(content)}&accountName=${encodeURIComponent(BANK_ACCOUNT.accountName)}`;
 
 export const Checkout: React.FC = () => {
   const navigate = useNavigate();
@@ -56,6 +77,14 @@ export const Checkout: React.FC = () => {
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkoutLocked, setCheckoutLocked] = useState(false);
+  const [paymentModalState, setPaymentModalState] = useState<{
+    orderId: string;
+    methodId: string;
+    amount: number;
+    reference: string;
+  } | null>(null);
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
   
   // New address form state
   const [showAddAddressForm, setShowAddAddressForm] = useState(false);
@@ -88,14 +117,15 @@ export const Checkout: React.FC = () => {
       navigate('/login');
       return;
     }
-    if (checkoutItems.length === 0) {
+    // Avoid redirect while submitting or while a QR modal is expected to show
+    if (checkoutItems.length === 0 && !paymentModalState && !checkoutLocked && !isSubmitting) {
       toast('Your checkout is empty. Redirecting to cart.', 'info');
       navigate('/cart');
       return;
     }
     
     loadAddresses();
-  }, [user, checkoutItems.length]);
+  }, [user, checkoutItems.length, paymentModalState, checkoutLocked, isSubmitting]);
 
   useEffect(() => {
     if (addresses.length > 0) {
@@ -110,6 +140,11 @@ export const Checkout: React.FC = () => {
 
   const selectedAddress = addresses.find(a => a.address_id === selectedAddressId);
   const calculations = getCalculations();
+  const selectedPayment = PAYMENT_METHODS.find(method => method.id === paymentMethodId) || PAYMENT_METHODS[0];
+  const paymentContent = paymentModalState?.reference || `LUMINA ${user?.user_id?.slice(0, 8) || 'ORDER'}`;
+  const paymentQrUrl = paymentModalState?.methodId === 'pay-bank-qr' || paymentModalState?.methodId === 'pay-vnpay'
+    ? buildBankQrUrl(paymentModalState.amount, paymentContent)
+    : buildQrImageUrl(`momo://pay?phone=${MOMO_ACCOUNT.phone}&amount=${paymentModalState?.amount || 0}&comment=${paymentContent}`);
 
   const handleApplyVoucher = (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,23 +212,72 @@ export const Checkout: React.FC = () => {
       return;
     }
 
+    // Lock checkout early for QR flows to avoid redirect while cart is being cleared
+    if (isQrPayment(paymentMethodId)) {
+      setCheckoutLocked(true);
+    }
+
     setIsSubmitting(true);
     // Simulate slight API processing delay for aesthetics
     setTimeout(async () => {
       try {
         const orderId = await checkout(user.user_id, selectedAddressId);
         if (orderId) {
-          toast('Order placed successfully! Thank you for purchasing.', 'success');
-          navigate('/orders');
+          if (isQrPayment(paymentMethodId)) {
+            const reference = `LUMINA ${orderId.slice(0, 8).toUpperCase()}`;
+            setPaymentModalState({
+              orderId,
+              methodId: paymentMethodId,
+              amount: calculations.totalAmount,
+              reference,
+            });
+            toast('Order created. Please scan the QR code to pay.', 'success');
+          } else {
+            await api.orders.addPayment(orderId, {
+              amount: calculations.totalAmount,
+              payment_status: 'PENDING',
+            });
+            toast('Order placed successfully! Thank you for purchasing.', 'success');
+            navigate('/orders');
+          }
         } else {
           toast('Checkout failed. Product might be out of stock.', 'error');
+          setCheckoutLocked(false);
         }
       } catch (err: any) {
         toast('An error occurred during checkout.', 'error');
+        setCheckoutLocked(false);
       } finally {
         setIsSubmitting(false);
       }
     }, 1500);
+  };
+
+  const handleCopyPaymentContent = async () => {
+    if (!paymentModalState) return;
+    await navigator.clipboard?.writeText(paymentModalState.reference);
+    toast('Payment content copied.', 'success');
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!paymentModalState) return;
+    setIsConfirmingPayment(true);
+    try {
+      await api.orders.addPayment(paymentModalState.orderId, {
+        transaction_code: paymentModalState.reference,
+        amount: paymentModalState.amount,
+        payment_status: 'SUCCESS',
+        paid_at: new Date().toISOString(),
+      });
+      toast('Payment confirmed successfully.', 'success');
+      setPaymentModalState(null);
+      setCheckoutLocked(false);
+      navigate('/orders');
+    } catch {
+      toast('Could not confirm payment. Please try again.', 'error');
+    } finally {
+      setIsConfirmingPayment(false);
+    }
   };
 
   return (
@@ -397,6 +481,21 @@ export const Checkout: React.FC = () => {
                   );
                 })}
               </div>
+              {isQrPayment(paymentMethodId) && (
+                <div className="mt-4 rounded-2xl border border-primary/20 bg-primary-light/10 p-4 text-xs text-slate-600 dark:bg-primary/5 dark:text-slate-300">
+                  <div className="flex items-start gap-3">
+                    {paymentMethodId === 'pay-momo' ? (
+                      <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    ) : (
+                      <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    )}
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-white">{selectedPayment.name}</p>
+                      <p className="mt-1 leading-relaxed">A QR code will appear after the order is created. Confirm payment after scanning.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
           </div>
@@ -517,6 +616,84 @@ export const Checkout: React.FC = () => {
 
         </div>
       </div>
+
+      {/* PAYMENT QR MODAL */}
+      {paymentModalState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" />
+          <div className="relative z-10 w-full max-w-md rounded-3xl border border-slate-100 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-950 dark:text-white">
+                    {paymentModalState.methodId === 'pay-momo' ? 'MoMo Payment' : 'Bank QR Payment'}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">Demo QR flow: scan the code, then confirm payment. No real money is transferred yet.</p>
+                </div>
+                <span className="rounded-full bg-primary-light px-3 py-1 text-[10px] font-bold text-primary dark:bg-primary/10">
+                  {paymentModalState.amount.toLocaleString()} ₫
+                </span>
+              </div>
+
+              <div className="flex justify-center rounded-3xl border border-slate-100 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950">
+                <img src={paymentQrUrl} alt="Payment QR code" className="h-64 w-64 rounded-2xl bg-white object-contain p-2" />
+              </div>
+
+              <div className="mt-5 space-y-3 rounded-2xl bg-slate-50 p-4 text-xs dark:bg-slate-950">
+                {paymentModalState.methodId === 'pay-momo' ? (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-500">MoMo wallet</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{MOMO_ACCOUNT.phone}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-500">Receiver</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{MOMO_ACCOUNT.walletName}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-500">Bank</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{BANK_ACCOUNT.bankName}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-500">Account</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{BANK_ACCOUNT.accountNumber}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">Content</span>
+                  <button onClick={handleCopyPaymentContent} className="inline-flex items-center gap-1 font-bold text-primary">
+                    {paymentModalState.reference} <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('/orders')}
+                  className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Pay Later
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmPayment}
+                  disabled={isConfirmingPayment}
+                  className="flex-1 rounded-2xl bg-primary px-4 py-3 text-xs font-extrabold text-white shadow-md shadow-primary/20 transition hover:bg-primary-dark disabled:opacity-60"
+                >
+                  {isConfirmingPayment ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Saving...</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> I Paid</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* ADDRESS SELECTOR MODAL */}
       <AnimatePresence>
