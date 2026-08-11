@@ -30,6 +30,11 @@ export class OrdersController {
     return this.ordersService.addPayment(id, body);
   }
 
+  @Post(':id/momo-create')
+  createMoMo(@Param('id') id: string, @Body() body: any) {
+    return this.ordersService.createMoMoPayment(id, body);
+  }
+
   @Post('groups/:groupId/shipments')
   addShipment(@Param('groupId') groupId: string, @Body() body: any) {
     return this.ordersService.addShipment(groupId, body);

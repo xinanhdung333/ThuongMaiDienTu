@@ -10,6 +10,8 @@ import { ProductVariant } from '../products/entities/product-variant.entity';
 import { Payment } from './entities/payment.entity';
 import { Shipment } from './entities/shipment.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
+import axios from 'axios';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class OrdersService {
@@ -40,6 +42,46 @@ export class OrdersService {
       options.where = { user_id };
     }
     return this.orderRepository.find(options);
+  }
+
+  async createMoMoPayment(order_id: string, payload: { amount: number; orderInfo?: string }) {
+    // NOTE: these test credentials come from a developer sandbox sample. For production
+    // move them to environment variables and never commit secrets to the repo.
+    const partnerCode = process.env.MOMO_PARTNER_CODE || 'MOMO';
+    const accessKey = process.env.MOMO_ACCESS_KEY || 'F8BBA842ECF85';
+    const secretkey = process.env.MOMO_SECRET || 'K951B6PE1waDMi640xX08PD3vg6EkVlz';
+    const requestId = `${partnerCode}${Date.now()}`;
+    const orderId = requestId;
+    const amount = String(Math.round(payload.amount || 0));
+    const orderInfo = payload.orderInfo || `Order ${order_id}`;
+    const redirectUrl = process.env.MOMO_REDIRECT_URL || 'https://momo.vn/return';
+    const ipnUrl = process.env.MOMO_IPN_URL || 'https://callback.url/notify';
+    const requestType = 'captureWallet';
+    const extraData = '';
+
+    const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
+    const signature = crypto.createHmac('sha256', secretkey).update(rawSignature).digest('hex');
+
+    const body = {
+      partnerCode,
+      accessKey,
+      requestId,
+      amount,
+      orderId,
+      orderInfo,
+      redirectUrl,
+      ipnUrl,
+      extraData,
+      requestType,
+      signature,
+      lang: 'en'
+    };
+
+    const resp = await axios.post('https://test-payment.momo.vn/v2/gateway/api/create', body, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    return resp.data;
   }
 
   async findOne(order_id: string) {

@@ -85,6 +85,9 @@ export const Checkout: React.FC = () => {
     reference: string;
   } | null>(null);
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
+  const [momoPayUrl, setMomoPayUrl] = useState<string | null>(null);
+  const [momoCreating, setMomoCreating] = useState(false);
+  const [hasMomoRedirected, setHasMomoRedirected] = useState(false);
   
   // New address form state
   const [showAddAddressForm, setShowAddAddressForm] = useState(false);
@@ -142,9 +145,16 @@ export const Checkout: React.FC = () => {
   const calculations = getCalculations();
   const selectedPayment = PAYMENT_METHODS.find(method => method.id === paymentMethodId) || PAYMENT_METHODS[0];
   const paymentContent = paymentModalState?.reference || `LUMINA ${user?.user_id?.slice(0, 8) || 'ORDER'}`;
-  const paymentQrUrl = paymentModalState?.methodId === 'pay-bank-qr' || paymentModalState?.methodId === 'pay-vnpay'
-    ? buildBankQrUrl(paymentModalState.amount, paymentContent)
-    : buildQrImageUrl(`momo://pay?phone=${MOMO_ACCOUNT.phone}&amount=${paymentModalState?.amount || 0}&comment=${paymentContent}`);
+  const paymentQrUrl = (() => {
+    if (!paymentModalState) return '';
+    if (paymentModalState.methodId === 'pay-bank-qr' || paymentModalState.methodId === 'pay-vnpay') {
+      return buildBankQrUrl(paymentModalState.amount, paymentContent);
+    }
+    if (paymentModalState.methodId === 'pay-momo' && momoPayUrl) {
+      return buildQrImageUrl(momoPayUrl);
+    }
+    return buildQrImageUrl(`momo://pay?phone=${MOMO_ACCOUNT.phone}&amount=${paymentModalState?.amount || 0}&comment=${paymentContent}`);
+  })();
 
   const handleApplyVoucher = (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,6 +241,23 @@ export const Checkout: React.FC = () => {
               amount: calculations.totalAmount,
               reference,
             });
+            if (paymentMethodId === 'pay-momo') {
+              setHasMomoRedirected(false);
+              setMomoPayUrl(null);
+              setMomoCreating(true);
+              api.orders.createMoMo(orderId, { amount: calculations.totalAmount, orderInfo: reference })
+                .then((res) => {
+                  if (res && res.payUrl) {
+                    setMomoPayUrl(res.payUrl);
+                  } else {
+                    toast('Could not obtain MoMo pay link from sandbox.', 'warning');
+                  }
+                })
+                .catch(() => {
+                  toast('Failed to create MoMo sandbox payment.', 'error');
+                })
+                .finally(() => setMomoCreating(false));
+            }
             toast('Order created. Please scan the QR code to pay.', 'success');
           } else {
             await api.orders.addPayment(orderId, {
@@ -258,6 +285,13 @@ export const Checkout: React.FC = () => {
     await navigator.clipboard?.writeText(paymentModalState.reference);
     toast('Payment content copied.', 'success');
   };
+
+  useEffect(() => {
+    if (paymentModalState?.methodId === 'pay-momo' && momoPayUrl && !hasMomoRedirected) {
+      setHasMomoRedirected(true);
+      window.location.assign(momoPayUrl);
+    }
+  }, [momoPayUrl, paymentModalState, hasMomoRedirected]);
 
   const handleConfirmPayment = async () => {
     if (!paymentModalState) return;
@@ -670,6 +704,12 @@ export const Checkout: React.FC = () => {
                 </div>
               </div>
 
+              {paymentModalState.methodId === 'pay-momo' && (
+                <div className="mt-4 text-sm text-slate-600 dark:text-slate-300">
+                  {momoCreating ? 'Preparing MoMo sandbox payment...' : momoPayUrl ? 'You will be redirected to the MoMo sandbox page shortly.' : 'Waiting for MoMo sandbox payment link...'}
+                </div>
+              )}
+
               <div className="mt-5 flex gap-3">
                 <button
                   type="button"
@@ -691,6 +731,17 @@ export const Checkout: React.FC = () => {
                   )}
                 </button>
               </div>
+              {paymentModalState.methodId === 'pay-momo' && momoPayUrl && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => window.open(momoPayUrl, '_blank')}
+                    className="w-full rounded-2xl border border-primary bg-white px-4 py-3 text-xs font-bold text-primary transition hover:bg-primary/5"
+                  >
+                    Open MoMo Sandbox Payment
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

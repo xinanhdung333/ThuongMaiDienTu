@@ -244,6 +244,10 @@ const orders = {
     const { data } = await client.post<Payment>(`/orders/${id}/payments`, payload);
     return data;
   },
+  createMoMo: async (id: string, payload: { amount: number; orderInfo?: string }) => {
+    const { data } = await client.post<any>(`/orders/${id}/momo-create`, payload);
+    return data;
+  },
   addShipment: async (groupId: string, payload: Partial<Shipment>) => {
     const { data } = await client.post<Shipment>(`/orders/groups/${groupId}/shipments`, payload);
     return data;
