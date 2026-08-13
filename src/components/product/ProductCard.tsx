@@ -38,7 +38,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       return;
     }
     const added = await toggleWishlist(user.user_id, product.product_id);
-    toast(added ? 'Added to Wishlist!' : 'Removed from Wishlist', 'success');
+    toast(added ? 'Đã thêm vào danh sách yêu thích' : 'Đã xóa khỏi danh sách yêu thích', 'success');
   };
 
   const handleAddToCart = async (e: React.MouseEvent) => {
@@ -88,7 +88,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             className={`absolute top-2.5 right-2.5 h-8 w-8 rounded-full border bg-white/95 dark:bg-slate-900/95 flex items-center justify-center shadow-sm cursor-pointer border-slate-100 dark:border-slate-800 transition-colors ${
               isFavorite ? 'text-rose-500' : 'text-slate-400 hover:text-rose-500'
             }`}
-            aria-label="Add to favorites"
+            aria-label={isFavorite ? 'Xóa khỏi danh sách yêu thích' : 'Thêm vào danh sách yêu thích'}
+            title={isFavorite ? 'Xóa khỏi danh sách yêu thích' : 'Thêm vào danh sách yêu thích'}
           >
             <Heart className={`w-4 h-4 ${isFavorite ? 'fill-rose-500' : ''}`} />
           </button>
@@ -136,15 +137,29 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                 </span>
               </div>
 
-              {/* Quick Add To Cart Button */}
-              <button
-                onClick={handleAddToCart}
-                disabled={product.status === 'OUT_OF_STOCK'}
-                className="h-8 w-8 rounded-xl bg-primary-light text-primary hover:bg-primary hover:text-white dark:bg-primary/10 dark:text-primary dark:hover:bg-primary dark:hover:text-white flex items-center justify-center transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="Add to cart"
-              >
-                <ShoppingCart className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleFavoriteClick}
+                  className={`h-8 w-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                    isFavorite
+                      ? 'bg-rose-50 text-rose-500 dark:bg-rose-950/30'
+                      : 'bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-500 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                  aria-label={isFavorite ? 'Xóa khỏi danh sách yêu thích' : 'Thêm vào danh sách yêu thích'}
+                  title={isFavorite ? 'Xóa khỏi danh sách yêu thích' : 'Thêm vào danh sách yêu thích'}
+                >
+                  <Heart className={`w-4 h-4 ${isFavorite ? 'fill-rose-500' : ''}`} />
+                </button>
+                <button
+                  onClick={handleAddToCart}
+                  disabled={product.status === 'OUT_OF_STOCK'}
+                  className="h-8 w-8 rounded-xl bg-primary-light text-primary hover:bg-primary hover:text-white dark:bg-primary/10 dark:text-primary dark:hover:bg-primary dark:hover:text-white flex items-center justify-center transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Thêm vào giỏ hàng"
+                  title="Thêm vào giỏ hàng"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 

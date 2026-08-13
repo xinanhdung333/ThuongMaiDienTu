@@ -46,7 +46,7 @@ const PAYMENT_METHODS = [
 const BANK_ACCOUNT = {
   bankName: 'MB Bank',
   bankBin: '970422',
-  accountNumber: '0765897253',
+  accountNumber: '0702014280',
   accountName: 'PHAM NGOC TIEN',
 };
 
@@ -253,17 +253,16 @@ export const Checkout: React.FC = () => {
                     toast('Could not obtain MoMo pay link from sandbox.', 'warning');
                   }
                 })
-                .catch(() => {
-                  toast('Failed to create MoMo sandbox payment.', 'error');
+                .catch((error) => {
+                  const message = typeof error === 'object' && error && 'message' in error
+                    ? String((error as { message: unknown }).message)
+                    : 'Không thể tạo liên kết thanh toán MoMo.';
+                  toast(message, 'error');
                 })
                 .finally(() => setMomoCreating(false));
             }
             toast('Order created. Please scan the QR code to pay.', 'success');
           } else {
-            await api.orders.addPayment(orderId, {
-              amount: calculations.totalAmount,
-              payment_status: 'PENDING',
-            });
             toast('Order placed successfully! Thank you for purchasing.', 'success');
             navigate('/orders');
           }
@@ -718,18 +717,20 @@ export const Checkout: React.FC = () => {
                 >
                   Pay Later
                 </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmPayment}
-                  disabled={isConfirmingPayment}
-                  className="flex-1 rounded-2xl bg-primary px-4 py-3 text-xs font-extrabold text-white shadow-md shadow-primary/20 transition hover:bg-primary-dark disabled:opacity-60"
-                >
-                  {isConfirmingPayment ? (
-                    <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Saving...</span>
-                  ) : (
-                    <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> I Paid</span>
-                  )}
-                </button>
+                {paymentModalState.methodId !== 'pay-momo' && (
+                  <button
+                    type="button"
+                    onClick={handleConfirmPayment}
+                    disabled={isConfirmingPayment}
+                    className="flex-1 rounded-2xl bg-primary px-4 py-3 text-xs font-extrabold text-white shadow-md shadow-primary/20 transition hover:bg-primary-dark disabled:opacity-60"
+                  >
+                    {isConfirmingPayment ? (
+                      <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Saving...</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> I Paid</span>
+                    )}
+                  </button>
+                )}
               </div>
               {paymentModalState.methodId === 'pay-momo' && momoPayUrl && (
                 <div className="mt-3">

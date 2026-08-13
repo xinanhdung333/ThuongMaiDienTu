@@ -10,9 +10,10 @@ import { Shipment } from './entities/shipment.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
+import { Inventory } from '../products/entities/inventory.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Order, OrderShopGroup, OrderItem, Payment, Shipment, OrderStatusHistory, Shop, ProductVariant])],
+  imports: [TypeOrmModule.forFeature([Order, OrderShopGroup, OrderItem, Payment, Shipment, OrderStatusHistory, Shop, ProductVariant, Inventory])],
   providers: [OrdersService],
   controllers: [OrdersController],
   exports: [OrdersService],

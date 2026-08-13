@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, BadGatewayException, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -7,6 +7,7 @@ import { OrderShopGroup } from './entities/order-shop-group.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
+import { Inventory } from '../products/entities/inventory.entity';
 import { Payment } from './entities/payment.entity';
 import { Shipment } from './entities/shipment.entity';
 import { OrderStatusHistory } from './entities/order-status-history.entity';
@@ -45,18 +46,31 @@ export class OrdersService {
   }
 
   async createMoMoPayment(order_id: string, payload: { amount: number; orderInfo?: string }) {
-    // NOTE: these test credentials come from a developer sandbox sample. For production
-    // move them to environment variables and never commit secrets to the repo.
-    const partnerCode = process.env.MOMO_PARTNER_CODE || 'MOMO';
-    const accessKey = process.env.MOMO_ACCESS_KEY || 'F8BBA842ECF85';
-    const secretkey = process.env.MOMO_SECRET || 'K951B6PE1waDMi640xX08PD3vg6EkVlz';
+    const order = await this.orderRepository.findOne({ where: { order_id } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.order_status !== 'PENDING') throw new BadRequestException('Only pending orders can be paid');
+    const partnerCode = process.env.MOMO_PARTNER_CODE;
+    const accessKey = process.env.MOMO_ACCESS_KEY;
+    const secretkey = process.env.MOMO_SECRET;
+    if (!partnerCode || !accessKey || !secretkey) {
+      throw new BadRequestException('MoMo chưa được cấu hình. Hãy thiết lập MOMO_PARTNER_CODE, MOMO_ACCESS_KEY và MOMO_SECRET trong backend/.env.');
+    }
+
+    const expectedAmount = Number(order.total_amount);
+    if (!Number.isFinite(expectedAmount) || expectedAmount < 1000) {
+      throw new BadRequestException('Số tiền thanh toán MoMo phải từ 1.000 VND.');
+    }
+
     const requestId = `${partnerCode}${Date.now()}`;
     const orderId = requestId;
-    const amount = String(Math.round(payload.amount || 0));
+    const amount = String(Math.round(expectedAmount));
     const orderInfo = payload.orderInfo || `Order ${order_id}`;
-    const redirectUrl = process.env.MOMO_REDIRECT_URL || 'https://momo.vn/return';
-    const ipnUrl = process.env.MOMO_IPN_URL || 'https://callback.url/notify';
-    const requestType = 'captureWallet';
+    const redirectUrl = process.env.MOMO_REDIRECT_URL;
+    const ipnUrl = process.env.MOMO_IPN_URL;
+    if (!redirectUrl || !ipnUrl) {
+      throw new BadRequestException('MoMo chưa có MOMO_REDIRECT_URL hoặc MOMO_IPN_URL trong backend/.env.');
+    }
+    const requestType = process.env.MOMO_REQUEST_TYPE || 'captureWallet';
     const extraData = '';
 
     const rawSignature = `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
@@ -77,11 +91,40 @@ export class OrdersService {
       lang: 'en'
     };
 
-    const resp = await axios.post('https://test-payment.momo.vn/v2/gateway/api/create', body, {
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    return resp.data;
+    try {
+      const resp = await axios.post(
+        process.env.MOMO_API_URL || 'https://test-payment.momo.vn/v2/gateway/api/create',
+        body,
+        {
+          timeout: 30000,
+          headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        },
+      );
+      if (resp.data?.resultCode !== 0 || !resp.data?.payUrl) {
+        throw new BadRequestException(resp.data?.message || 'MoMo could not create a payment link');
+      }
+      await this.paymentRepository.upsert({
+        order_id,
+        transaction_code: orderId,
+        amount: expectedAmount,
+        payment_status: 'PENDING',
+      }, ['order_id']);
+      return resp.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        // MoMo returns useful resultCode/message in its response body. Preserve
+        // it instead of masking every upstream validation error as a 502.
+        if (error.response) {
+          throw new HttpException(
+            error.response.data || { message: 'MoMo Sandbox từ chối yêu cầu thanh toán.' },
+            error.response.status,
+          );
+        }
+        const reason = error.code || error.message;
+        throw new BadGatewayException(`Không thể kết nối tới MoMo Sandbox: ${reason}`);
+      }
+      throw error;
+    }
   }
 
   async findOne(order_id: string) {
@@ -126,6 +169,9 @@ export class OrdersService {
     }
 
     const { shopGroups: inputShopGroups, ...orderFields } = data as any;
+    if (!Array.isArray(inputShopGroups) || inputShopGroups.length === 0) {
+      throw new BadRequestException('Order must contain at least one shop group');
+    }
     const order: Order = this.orderRepository.create({
       ...orderFields,
       order_code: data.order_code ?? this.generateOrderCode(),
@@ -134,14 +180,53 @@ export class OrdersService {
     // groups/items will be persisted explicitly after the order is saved
 
     const savedOrderId = await this.dataSource.transaction(async (manager) => {
+      let calculatedSubtotal = 0;
+      const normalizedGroups: any[] = [];
+      for (const group of inputShopGroups) {
+        const normalizedItems: any[] = [];
+        for (const inputItem of group.items || []) {
+          const quantity = Number(inputItem.quantity);
+          if (!Number.isInteger(quantity) || quantity <= 0) throw new BadRequestException('Invalid item quantity');
+          const variant = await manager.findOne(ProductVariant, { where: { variant_id: inputItem.variant_id } });
+          if (!variant || variant.status !== 'ACTIVE') throw new BadRequestException('Product variant is unavailable');
+          const inventory = await manager.createQueryBuilder(Inventory, 'inventory')
+            .setLock('pessimistic_write')
+            .where('inventory.variant_id = :variantId', { variantId: variant.variant_id })
+            .getOne();
+          if (!inventory || inventory.quantity - inventory.reserved_quantity < quantity) {
+            throw new BadRequestException(`Insufficient stock for variant ${variant.variant_id}`);
+          }
+          inventory.reserved_quantity += quantity;
+          await manager.save(Inventory, inventory);
+          const unitPrice = Number(variant.price);
+          const subtotal = unitPrice * quantity;
+          calculatedSubtotal += subtotal;
+          normalizedItems.push({ variant_id: variant.variant_id, quantity, unit_price: unitPrice, discount: 0, subtotal });
+        }
+        if (!normalizedItems.length) throw new BadRequestException('A shop group must contain items');
+        normalizedGroups.push({ ...group, items: normalizedItems });
+      }
+      const shippingFee = Number(orderFields.shipping_fee || 0);
+      const discount = Number(orderFields.discount || 0);
+      if (shippingFee < 0 || discount < 0 || discount > calculatedSubtotal + shippingFee) throw new BadRequestException('Invalid order totals');
+      order.subtotal = calculatedSubtotal;
+      order.shipping_fee = shippingFee;
+      order.discount = discount;
+      order.total_amount = calculatedSubtotal + shippingFee - discount;
+
       // save order first to obtain order_id
       const savedOrder = await manager.save(Order, order);
+      await manager.save(Payment, manager.create(Payment, {
+        order_id: savedOrder.order_id,
+        amount: savedOrder.total_amount,
+        payment_status: 'PENDING',
+      }));
 
       // then persist shop groups and items with explicit FK values
-      if (Array.isArray(inputShopGroups)) {
-        for (const g of inputShopGroups) {
+      if (Array.isArray(normalizedGroups)) {
+        for (const g of normalizedGroups) {
           const { items: groupItems, ...groupFields } = g;
-          const subtotal = Number(groupFields.subtotal ?? 0);
+          const subtotal = groupItems.reduce((sum: number, item: any) => sum + item.subtotal, 0);
           const shippingFee = Number(groupFields.shipping_fee ?? 0);
           const discount = Number(groupFields.discount ?? 0);
           const grpEntity: OrderShopGroup = this.groupRepository.create({
@@ -181,9 +266,62 @@ export class OrdersService {
   }
 
   async updateStatus(order_id: string, status: string) {
-    await this.orderRepository.update({ order_id }, { order_status: status, updated_at: new Date().toISOString() });
-    await this.historyRepository.save({ order_id, status, changed_at: new Date().toISOString() } as OrderStatusHistory);
+    const order = await this.findOne(order_id);
+    const nextStatus = String(status || '').toUpperCase();
+    if (nextStatus === 'CANCELLED' && order.order_status !== 'CANCELLED') {
+      await this.releaseReservation(order_id);
+    }
+    await this.orderRepository.update({ order_id }, { order_status: nextStatus, updated_at: new Date().toISOString() });
+    await this.historyRepository.save({ order_id, status: nextStatus, changed_at: new Date().toISOString() } as OrderStatusHistory);
     return this.findOne(order_id);
+  }
+
+  async handleMoMoIpn(payload: Record<string, any>) {
+    const rawSignature = `accessKey=${process.env.MOMO_ACCESS_KEY}&amount=${payload.amount}&extraData=${payload.extraData || ''}&message=${payload.message || ''}&orderId=${payload.orderId}&orderInfo=${payload.orderInfo}&orderType=${payload.orderType || ''}&partnerCode=${payload.partnerCode}&payType=${payload.payType || ''}&requestId=${payload.requestId}&responseTime=${payload.responseTime}&resultCode=${payload.resultCode}&transId=${payload.transId}`;
+    const expectedSignature = crypto.createHmac('sha256', process.env.MOMO_SECRET || '').update(rawSignature).digest('hex');
+    const payment = await this.paymentRepository.findOne({ where: { transaction_code: payload.orderId } });
+    const signature = String(payload.signature || '');
+    if (!payment || signature.length !== expectedSignature.length || !crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature))) {
+      return { resultCode: 1, message: 'Invalid payment notification' };
+    }
+    if (Number(payment.amount) !== Number(payload.amount)) return { resultCode: 1, message: 'Amount mismatch' };
+    if (payment.payment_status === 'SUCCESS') return { resultCode: 0, message: 'Success' };
+    if (Number(payload.resultCode) !== 0) {
+      payment.payment_status = 'FAILED';
+      await this.paymentRepository.save(payment);
+      await this.updateStatus(payment.order_id, 'CANCELLED');
+      return { resultCode: 0, message: 'Failure recorded' };
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const items = await manager.find(OrderItem, { where: { order_id: payment.order_id } });
+      for (const item of items) {
+        const inventory = await manager.createQueryBuilder(Inventory, 'inventory')
+          .setLock('pessimistic_write').where('inventory.variant_id = :id', { id: item.variant_id }).getOneOrFail();
+        inventory.reserved_quantity -= item.quantity;
+        inventory.quantity -= item.quantity;
+        await manager.save(Inventory, inventory);
+      }
+      await manager.update(Payment, { payment_id: payment.payment_id }, {
+        payment_status: 'SUCCESS', paid_at: new Date().toISOString(),
+      });
+      await manager.update(Order, { order_id: payment.order_id }, { order_status: 'CONFIRMED', updated_at: new Date().toISOString() });
+      await manager.save(OrderStatusHistory, manager.create(OrderStatusHistory, { order_id: payment.order_id, status: 'CONFIRMED' }));
+    });
+    return { resultCode: 0, message: 'Success' };
+  }
+
+  private async releaseReservation(orderId: string) {
+    await this.dataSource.transaction(async (manager) => {
+      const items = await manager.find(OrderItem, { where: { order_id: orderId } });
+      for (const item of items) {
+        const inventory = await manager.createQueryBuilder(Inventory, 'inventory')
+          .setLock('pessimistic_write').where('inventory.variant_id = :id', { id: item.variant_id }).getOne();
+        if (inventory) {
+          inventory.reserved_quantity = Math.max(0, inventory.reserved_quantity - item.quantity);
+          await manager.save(Inventory, inventory);
+        }
+      }
+    });
   }
 
   async addPayment(order_id: string, payment: Partial<Payment>) {
