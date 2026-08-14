@@ -1,0 +1,186 @@
+# ==============================================================================
+# FILE CẤU HÌNH TEST API - SHOPEE LITE
+# Sử dụng với Extension "REST Client" trên VS Code (khuyên dùng)
+# hoặc copy các thông tin body để test trên Postman / Thunder Client.
+# Backend đang chạy ở cổng: http://localhost:4000/api
+# ==============================================================================
+
+@baseUrl = http://localhost:4000/api
+
+# ==============================================================================
+# BƯỚC 1: ĐĂNG NHẬP (Lấy JWT Token)
+# ==============================================================================
+
+### 1.1 Đăng nhập bằng tài khoản Buyer mặc định (đã được Seed sẵn)
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "buyer@lumina.com",
+    "password": "buyer123"
+}
+
+### [LƯU Ý REST CLIENT]
+# Token nhận được sẽ tự động lưu vào biến `authToken` nhờ chỉ thị `# @name login`.
+@authToken = {{login.response.body.access_token}}
+
+
+### 1.2 Đăng ký một tài khoản khách hàng mới (nếu muốn)
+POST {{baseUrl}}/users
+Content-Type: application/json
+
+{
+    "full_name": "Nguyen Van A",
+    "email": "nguyenvana@gmail.com",
+    "password_hash": "anhtuong123456",
+    "phone": "0988888888"
+}
+
+
+# ==============================================================================
+# BƯỚC 2: QUẢN LÝ USER & LẤY THÔNG TIN ID
+# ==============================================================================
+
+### 2.1 Lấy danh sách tất cả Users (Để lấy user_id chạy thử giỏ hàng)
+# @name getUsers
+GET {{baseUrl}}/users
+Authorization: Bearer {{authToken}}
+
+### [LƯU Ý REST CLIENT]
+# Lấy ID của user đầu tiên trong danh sách vừa trả về
+@userId = {{getUsers.response.body[0].user_id}}
+
+
+### 2.2 Xem thông tin chi tiết một User cụ thể
+GET {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{authToken}}
+
+
+### 2.3 Thêm địa chỉ nhận hàng cho User
+POST {{baseUrl}}/users/{{userId}}/addresses
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "recipient_name": "Nguyen Van A",
+    "phone": "0988888888",
+    "address_line": "123 Duong Le Loi, Quan 1",
+    "city": "Ho Chi Minh",
+    "is_default": true
+}
+
+
+# ==============================================================================
+# BƯỚC 3: XEM SẢN PHẨM & LẤY ID BIẾN THỂ (PRODUCT VARIANT)
+# ==============================================================================
+
+### 3.1 Lấy danh sách sản phẩm trên hệ thống
+# @name getProducts
+GET {{baseUrl}}/products
+
+### [LƯU Ý REST CLIENT]
+# Lấy ID của sản phẩm đầu tiên
+@productId = {{getProducts.response.body[0].product_id}}
+
+
+### 3.2 Xem chi tiết sản phẩm để lấy danh sách biến thể (product_variants)
+# @name getProductDetail
+GET {{baseUrl}}/products/{{productId}}
+
+### [LƯU Ý REST CLIENT]
+# Lấy ID của variant (biến thể) đầu tiên của sản phẩm để add vào giỏ
+@variantId = {{getProductDetail.response.body.variants[0].variant_id}}
+
+
+# ==============================================================================
+# BƯỚC 4: THAO TÁC VỚI GIỎ HÀNG (CART)
+# ==============================================================================
+
+### 4.1 Thêm sản phẩm biến thể vừa chọn vào giỏ hàng
+# @name addToCart
+POST {{baseUrl}}/carts/{{userId}}/items
+Content-Type: application/json
+
+{
+    "variant_id": "{{variantId}}",
+    "quantity": 2
+}
+
+### [LƯU Ý REST CLIENT]
+# Lấy cart_item_id từ sản phẩm vừa được thêm vào giỏ
+@cartItemId = {{addToCart.response.body.cart_items[0].cart_item_id}}
+
+
+### 4.2 Lấy thông tin giỏ hàng hiện tại của User
+GET {{baseUrl}}/carts/{{userId}}
+
+
+### 4.3 Cập nhật số lượng của một mặt hàng trong giỏ
+PATCH {{baseUrl}}/carts/{{userId}}/items/{{cartItemId}}
+Content-Type: application/json
+
+{
+    "quantity": 5
+}
+
+
+### 4.4 Xóa mặt hàng khỏi giỏ
+DELETE {{baseUrl}}/carts/{{userId}}/items/{{cartItemId}}
+
+
+# ==============================================================================
+# BƯỚC 5: ĐẶT HÀNG & THANH TOÁN (CHECKOUT)
+# ==============================================================================
+
+### 5.1 Tạo Đơn hàng mới (Checkout)
+# @name createOrder
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+    "user_id": "{{userId}}",
+    "shipping_address": "123 Duong Le Loi, Quan 1, Ho Chi Minh",
+    "payment_method": "COD",
+    "total_amount": 150000,
+    "discount_amount": 0,
+    "shipping_fee": 30000,
+    "final_amount": 180000
+}
+
+### [LƯU Ý REST CLIENT]
+# Lấy ID đơn hàng vừa tạo để test tiếp thanh toán/vận chuyển
+@orderId = {{createOrder.response.body.order_id}}
+
+
+### 5.2 Xem danh sách tất cả các đơn hàng trên hệ thống
+GET {{baseUrl}}/orders
+Authorization: Bearer {{authToken}}
+
+
+### 5.3 Xem chi tiết đơn hàng cụ thể
+GET {{baseUrl}}/orders/{{orderId}}
+Authorization: Bearer {{authToken}}
+
+
+### 5.4 Cập nhật trạng thái đơn hàng (ví dụ: chuyển sang PROCESSING)
+PATCH {{baseUrl}}/orders/{{orderId}}/status
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "status": "PROCESSING"
+}
+
+
+### 5.5 Thực hiện thanh toán cho Đơn hàng
+POST {{baseUrl}}/orders/{{orderId}}/payments
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "payment_method": "COD",
+    "amount": 180000,
+    "payment_status": "COMPLETED",
+    "transaction_id": "TRANS123456"
+}
