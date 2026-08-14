@@ -50,11 +50,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       return;
     }
     if (mainVariant) {
-      const success = await addItem(user.user_id, mainVariant.variant_id, 1);
-      if (success) {
+      const result = await addItem(user.user_id, mainVariant.variant_id, 1);
+      if (result.success) {
         toast('Added to cart successfully!', 'success');
       } else {
-        toast('Failed to add to cart: Out of stock', 'error');
+        toast(result.message || 'Failed to add item to cart.', 'error');
       }
     }
   };

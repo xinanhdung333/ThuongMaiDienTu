@@ -1,0 +1,132 @@
+Dưới đây là sơ đồ chi tiết từng bước chạy của code (từ giao diện Frontend, API gửi đi, đến cách Backend xử lý và cập nhật Database) cho luồng nghiệp vụ: Đăng nhập → Chọn sản phẩm → Thêm vào giỏ → Đặt hàng (Checkout).
+
+Bước 1: Đăng nhập (Login)
+
+
+[Khách hàng điền Email/Password] ──(Click Đăng Nhập)──> [Giao diện Login.tsx]
+                                                               │ (Gửi Request)
+                                                               ▼
+[authStore.ts] <──(Lưu JWT Token)── [Nhận mã Token] <─── [API: POST /auth/login]
+Tại Giao diện (Frontend):
+Khách hàng điền thông tin tại trang 
+Login.tsx
+.
+React thu thập dữ liệu và gọi API POST /auth/login (qua Axios).
+Tại Backend (NestJS xử lý):
+Controller: 
+auth.controller.ts
+ nhận dữ liệu từ Client qua DTO (Data Transfer Object).
+Service: 
+auth.service.ts
+ truy vấn bảng users trong Postgres để tìm email:
+Sử dụng thư viện bcrypt để so sánh mật khẩu người dùng nhập vào với mật khẩu đã mã hóa lưu trong database.
+Nếu đúng, hệ thống sử dụng @nestjs/jwt để ký (sign) ra một chuỗi JWT Token (chứa userId, email, role).
+Kết quả: Backend trả chuỗi JWT Token về cho Client.
+Lưu trạng thái (Frontend):
+React nhận Token, lưu vào authStore.ts (Zustand) và localStorage.
+Kể từ lúc này, mọi Request gửi lên Backend sẽ tự động đính kèm Token này ở Header: Authorization: Bearer <TOKEN> để chứng minh danh tính.
+Bước 2: Ấn chọn sản phẩm (Select Product)
+
+
+[Home/Listing Page] ──(Click Product Card)──> [Định tuyến Router: /product/:id]
+                                                               │
+                                                               ▼
+[Hiển thị thông tin & Tồn kho] <─── [Nhận dữ liệu] <─── [API: GET /products/:id]
+Tại Giao diện (Frontend):
+Từ trang chủ 
+Home.tsx
+, khách hàng click vào một sản phẩm.
+React Router chuyển hướng người dùng sang trang chi tiết 
+ProductDetail.tsx
+ thông qua URL có chứa ID của sản phẩm (ví dụ: /product/12).
+Trang ProductDetail.tsx lập tức gọi API GET /products/12 để lấy thông tin.
+Tại Backend (NestJS xử lý):
+Controller: 
+products.controller.ts
+ nhận request GET /products/:id.
+Service: 
+products.service.ts
+ thực hiện truy vấn thông qua TypeORM. Nó không chỉ lấy thông tin sản phẩm cơ bản mà còn join với các bảng liên quan:
+Bảng product_images (để lấy danh sách ảnh).
+Bảng product_variants (lấy các SKU màu sắc, kích cỡ).
+Bảng inventory (để xem biến thể nào còn hàng hay hết hàng).
+Kết quả: Trả về một JSON chứa toàn bộ thông tin chi tiết sản phẩm.
+Hiển thị (Frontend):
+React nhận dữ liệu, render lên giao diện hình ảnh, giá tiền, và danh sách các nút chọn màu sắc/kích cỡ phù hợp.
+Bước 3: Thêm vào giỏ hàng (Add to Cart)
+
+
+[ProductDetail.tsx] ──(Chọn màu/size & click Thêm giỏ hàng)
+        │
+        ├─> [UI cập nhật] ──> Tăng số lượng giỏ hàng trên Navbar (Zustand: cartStore.ts)
+        │
+        └─> [Gọi API] ─────> [POST /cart/items] (Kèm JWT Token ở Header)
+                                    │
+                                    ▼
+                             [NestJS: CartService] 
+                             - Kiểm tra Giỏ hàng của User trong DB
+                             - Thêm mới hoặc Cộng dồn số lượng vào bảng `cart_items`
+Tại Giao diện (Frontend):
+Khách hàng chọn biến thể (ví dụ: Điện thoại màu Đỏ, 128GB) và bấm "Thêm vào giỏ hàng".
+React gọi hàm addToCart trong cartStore.ts (Zustand) để lập tức tăng số lượng hiển thị trên icon Giỏ hàng ở Navbar (tạo cảm giác mượt mà tức thì cho người dùng).
+Đồng thời, gửi API POST /cart/items kèm body: { variantId: 5, quantity: 1 }.
+Tại Backend (NestJS xử lý):
+Xác thực: Request đi qua JwtAuthGuard. NestJS giải mã JWT Token ở Header để lấy ra userId. Nếu không có token hoặc token hết hạn, trả về lỗi 401 Unauthorized.
+Controller: 
+cart.controller.ts
+ tiếp nhận request hợp lệ.
+Service: 
+cart.service.ts
+ xử lý:
+Tìm giỏ hàng (carts) của userId này trong database. Nếu chưa có (người dùng mới), tạo một giỏ hàng trống mới.
+Kiểm tra xem biến thể sản phẩm có ID = 5 này đã tồn tại trong giỏ hàng của user chưa:
+Nếu có rồi: Thực hiện cập nhật tăng số lượng (quantity = quantity + 1) trong bảng cart_items.
+Nếu chưa có: Tạo mới một dòng ghi vào bảng cart_items liên kết với cart_id và variant_id.
+Bước 4: Thanh toán & Đặt hàng (Checkout)
+
+
+[Giỏ hàng Cart.tsx] ──(Click Mua hàng)──> [Giao diện Checkout.tsx]
+                                                  │
+                                                  ▼ (Điền thông tin nhận, chọn Voucher)
+                                          [Click ĐẶT HÀNG]
+                                                  │
+                                                  ▼ (Gửi API: POST /orders)
+                                          [NestJS: OrdersService]
+                                          1. Check tồn kho trong DB (bảng inventory)
+                                          2. Tính toán tiền, áp mã giảm giá
+                                          3. Tạo đơn tổng (orders)
+                                          4. Tách đơn theo Shop (order_shop_groups)
+                                          5. Trừ số lượng tồn kho (inventory)
+                                          6. Xóa sản phẩm khỏi giỏ (cart_items)
+                                                  │
+                                                  ▼
+[Chuyển sang CheckoutSuccess.tsx] <─── [Nhận kết quả]
+Tại Giao diện (Frontend):
+Người dùng vào 
+Cart.tsx
+ bấm nút "Mua hàng", hệ thống chuyển hướng sang 
+Checkout.tsx
+.
+Người dùng chọn địa chỉ giao hàng, phương thức thanh toán (COD hoặc Online), áp mã giảm giá (Voucher) và bấm "Đặt hàng".
+React gửi request POST /orders kèm thông tin địa chỉ, phương thức thanh toán, danh sách sản phẩm và mã voucher.
+Tại Backend (NestJS xử lý):
+Controller: 
+orders.controller.ts
+ tiếp nhận.
+Service: 
+orders.service.ts
+ thực hiện giao dịch (Transaction) an toàn với DB:
+Kiểm tra tồn kho (inventory): Đọc bảng tồn kho xem biến thể số 5 còn đủ hàng không. Nếu hết hoặc thiếu, lập tức hủy giao dịch và báo lỗi về Client.
+Áp dụng Voucher: Nếu người dùng gửi mã Voucher, truy vấn bảng vouchers để kiểm tra thời hạn, số lượng sử dụng và tính số tiền được giảm.
+Tạo đơn tổng (orders): Ghi vào bảng orders thông tin chung (Tổng tiền, tiền giảm, địa chỉ nhận, phương thức thanh toán).
+Tách đơn theo Shop (order_shop_groups): Do hệ thống cho phép mua hàng từ nhiều shop khác nhau trong một lần thanh toán, NestJS sẽ lọc danh sách mặt hàng đặt mua → xác định xem mặt hàng đó thuộc chủ Shop nào → Gom nhóm và tạo các đơn hàng phụ theo từng Shop để người bán tự đóng gói và giao hàng riêng.
+Tạo chi tiết dòng đơn (order_items): Lưu chi tiết số lượng, giá bán từng sản phẩm biến thể liên kết với các đơn hàng phụ.
+Cập nhật tồn kho: Trực tiếp trừ số lượng sản phẩm trong bảng inventory.
+Dọn sạch giỏ hàng: Xóa các sản phẩm vừa đặt mua khỏi bảng cart_items của người dùng.
+Hoàn tất luồng:
+Server lưu mọi thay đổi thành công vào Database PostgreSQL và trả về kết quả thành công.
+Frontend nhận kết quả:
+Gọi hàm reset giỏ hàng trong cartStore.ts về trống.
+React Router điều hướng sang trang thành công 
+CheckoutSuccess.tsx
+ để hiển thị thông tin chúc mừng và mã vận đơn.

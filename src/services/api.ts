@@ -240,11 +240,7 @@ const orders = {
     const { data } = await client.patch<Order>(`/orders/${id}/status`, { status });
     return data;
   },
-  addPayment: async (id: string, payload: Partial<Payment>) => {
-    const { data } = await client.post<Payment>(`/orders/${id}/payments`, payload);
-    return data;
-  },
-  createMoMo: async (id: string, payload: { amount: number; orderInfo?: string }) => {
+  createMoMo: async (id: string, payload: { orderInfo?: string }) => {
     const { data } = await client.post<any>(`/orders/${id}/momo-create`, payload);
     return data;
   },

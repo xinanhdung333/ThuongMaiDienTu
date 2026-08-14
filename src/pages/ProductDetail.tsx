@@ -118,11 +118,11 @@ export const ProductDetail: React.FC = () => {
       return;
     }
     if (selectedVariant) {
-      const success = await addItem(user.user_id, selectedVariant.variant_id, quantity);
-      if (success) {
+      const result = await addItem(user.user_id, selectedVariant.variant_id, quantity);
+      if (result.success) {
         toast('Added to cart successfully!', 'success');
       } else {
-        toast('Insufficient stock available.', 'error');
+        toast(result.message || 'Could not add this item to the cart.', 'error');
       }
     }
   };
@@ -134,11 +134,11 @@ export const ProductDetail: React.FC = () => {
       return;
     }
     if (selectedVariant) {
-      const success = await addItem(user.user_id, selectedVariant.variant_id, quantity, true);
-      if (success) {
+      const result = await addItem(user.user_id, selectedVariant.variant_id, quantity, true);
+      if (result.success) {
         navigate('/checkout');
       } else {
-        toast('Insufficient stock available.', 'error');
+        toast(result.message || 'Could not add this item to the cart.', 'error');
       }
     }
   };

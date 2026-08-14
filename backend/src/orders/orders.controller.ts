@@ -1,43 +1,42 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
+@UseGuards(AuthGuard('jwt'))
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  findAll(@Query('user_id') user_id?: string) {
-    return this.ordersService.findAll(user_id);
+  findAll(@Req() req: any) {
+    return this.ordersService.findAll(req.user.user_id);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    const order = await this.ordersService.findOne(id);
+    if (order.user_id !== req.user.user_id) throw new ForbiddenException();
+    return order;
   }
 
   @Post()
-  create(@Body() body: any) {
-    return this.ordersService.create(body);
+  create(@Body() body: any, @Req() req: any) {
+    return this.ordersService.create(req.user.user_id, body);
   }
 
   @Patch(':id/status')
-  updateStatus(@Param('id') id: string, @Body('status') status: string) {
-    return this.ordersService.updateStatus(id, status);
-  }
-
-  @Post(':id/payments')
-  addPayment(@Param('id') id: string, @Body() body: any) {
-    return this.ordersService.addPayment(id, body);
+  updateStatus(@Param('id') id: string, @Body('status') status: string, @Req() req: any) {
+    return this.ordersService.updateStatus(req.user.user_id, id, status);
   }
 
   @Post(':id/momo-create')
-  createMoMo(@Param('id') id: string, @Body() body: any) {
-    return this.ordersService.createMoMoPayment(id, body);
+  createMoMo(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.ordersService.createMoMoPayment(req.user.user_id, id, body);
   }
 
-  @Post('momo/ipn')
-  momoIpn(@Body() body: any) {
-    return this.ordersService.handleMoMoIpn(body);
+  @Post(':id/cod/confirm-collection')
+  confirmCodCollection(@Param('id') id: string, @Req() req: any) {
+    return this.ordersService.confirmCodCollection(req.user, id);
   }
 
   @Post('groups/:groupId/shipments')

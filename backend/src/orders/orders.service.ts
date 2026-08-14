@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, BadGatewayException, HttpException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, BadGatewayException, HttpException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -7,6 +7,7 @@ import { OrderShopGroup } from './entities/order-shop-group.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Shop } from '../shops/entities/shop.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
+import { Product } from '../products/entities/product.entity';
 import { Inventory } from '../products/entities/inventory.entity';
 import { Payment } from './entities/payment.entity';
 import { Shipment } from './entities/shipment.entity';
@@ -45,9 +46,10 @@ export class OrdersService {
     return this.orderRepository.find(options);
   }
 
-  async createMoMoPayment(order_id: string, payload: { amount: number; orderInfo?: string }) {
+  async createMoMoPayment(userId: string, order_id: string, payload: { orderInfo?: string }) {
     const order = await this.orderRepository.findOne({ where: { order_id } });
     if (!order) throw new NotFoundException('Order not found');
+    if (order.user_id !== userId) throw new ForbiddenException();
     if (order.order_status !== 'PENDING') throw new BadRequestException('Only pending orders can be paid');
     const partnerCode = process.env.MOMO_PARTNER_CODE;
     const accessKey = process.env.MOMO_ACCESS_KEY;
@@ -91,6 +93,13 @@ export class OrdersService {
       lang: 'en'
     };
 
+    // Persist the provider order id before calling MoMo. This makes IPNs
+    // traceable even if the browser closes immediately after receiving payUrl.
+    await this.paymentRepository.update({ order_id }, {
+      transaction_code: orderId,
+      amount: expectedAmount,
+      payment_status: 'PENDING',
+    });
     try {
       const resp = await axios.post(
         process.env.MOMO_API_URL || 'https://test-payment.momo.vn/v2/gateway/api/create',
@@ -103,12 +112,6 @@ export class OrdersService {
       if (resp.data?.resultCode !== 0 || !resp.data?.payUrl) {
         throw new BadRequestException(resp.data?.message || 'MoMo could not create a payment link');
       }
-      await this.paymentRepository.upsert({
-        order_id,
-        transaction_code: orderId,
-        amount: expectedAmount,
-        payment_status: 'PENDING',
-      }, ['order_id']);
       return resp.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -144,36 +147,30 @@ export class OrdersService {
     return order;
   }
 
-  async create(data: Partial<Order>) {
+  async create(userId: string, data: Partial<Order>) {
     // basic validation: ensure referenced shops and variants exist
     const groups = Array.isArray((data as any).shopGroups) ? (data as any).shopGroups : [];
-    const shopIds = groups.map((g: any) => g.shop_id).filter(Boolean);
-    const variantIds = groups.flatMap((g: any) => (g.items || []).map((it: any) => it.variant_id)).filter(Boolean);
-
-    if (shopIds.length) {
-      const existingShops = await this.dataSource.manager.find(Shop, { where: { shop_id: In(shopIds) } as any });
-      const existingShopIds = new Set(existingShops.map(s => (s as any).shop_id));
-      const missingShops = shopIds.filter((id: string) => !existingShopIds.has(id));
-      if (missingShops.length) {
-        throw new BadRequestException(`Referenced shops not found: ${missingShops.join(', ')}`);
-      }
-    }
-
-    if (variantIds.length) {
-      const existingVariants = await this.dataSource.manager.find(ProductVariant, { where: { variant_id: In(variantIds) } as any });
-      const existingVariantIds = new Set(existingVariants.map(v => (v as any).variant_id));
-      const missingVariants = variantIds.filter((id: string) => !existingVariantIds.has(id));
-      if (missingVariants.length) {
-        throw new BadRequestException(`Referenced variants not found: ${missingVariants.join(', ')}`);
-      }
-    }
-
     const { shopGroups: inputShopGroups, ...orderFields } = data as any;
     if (!Array.isArray(inputShopGroups) || inputShopGroups.length === 0) {
       throw new BadRequestException('Order must contain at least one shop group');
     }
+    // The database currently stores the storefront method aliases in the
+    // order columns (varchar(30)). Keep that stored value, but resolve the
+    // alias only when looking up the trusted shipping fee.
+    const paymentMethodId = String(orderFields.payment_method_id || '');
+    const shippingMethodId = String(orderFields.shipping_method_id || '');
+    const shippingMethodName = ({
+      'ship-std': 'Standard', 'ship-fast': 'Fast', 'ship-exp': 'Express',
+    } as Record<string, string>)[shippingMethodId.toLowerCase()] || '';
+    if (!paymentMethodId || !shippingMethodId) throw new BadRequestException('Payment and shipping methods are required');
     const order: Order = this.orderRepository.create({
-      ...orderFields,
+      // user_id and all monetary fields always come from the authenticated
+      // user/server calculations, never from the checkout payload.
+      user_id: userId,
+      address_id: orderFields.address_id,
+      payment_method_id: paymentMethodId,
+      shipping_method_id: shippingMethodId,
+      note: orderFields.note,
       order_code: data.order_code ?? this.generateOrderCode(),
     } as Partial<Order>);
 
@@ -189,6 +186,8 @@ export class OrdersService {
           if (!Number.isInteger(quantity) || quantity <= 0) throw new BadRequestException('Invalid item quantity');
           const variant = await manager.findOne(ProductVariant, { where: { variant_id: inputItem.variant_id } });
           if (!variant || variant.status !== 'ACTIVE') throw new BadRequestException('Product variant is unavailable');
+          const product = await manager.findOne(Product, { where: { product_id: variant.product_id } });
+          if (!product || product.shop_id !== group.shop_id) throw new BadRequestException('Variant does not belong to the supplied shop');
           const inventory = await manager.createQueryBuilder(Inventory, 'inventory')
             .setLock('pessimistic_write')
             .where('inventory.variant_id = :variantId', { variantId: variant.variant_id })
@@ -206,9 +205,14 @@ export class OrdersService {
         if (!normalizedItems.length) throw new BadRequestException('A shop group must contain items');
         normalizedGroups.push({ ...group, items: normalizedItems });
       }
-      const shippingFee = Number(orderFields.shipping_fee || 0);
-      const discount = Number(orderFields.discount || 0);
-      if (shippingFee < 0 || discount < 0 || discount > calculatedSubtotal + shippingFee) throw new BadRequestException('Invalid order totals');
+      const shippingRow = await manager.query(
+        'SELECT shipping_fee FROM shipping_methods WHERE (shipping_method_id::text = $1 OR method_name = $2) AND is_active = TRUE',
+        [shippingMethodId, shippingMethodName],
+      );
+      if (!shippingRow[0]) throw new BadRequestException('Invalid shipping method');
+      // A package is created for each shop, so apply the trusted method fee per package.
+      const shippingFee = Number(shippingRow[0].shipping_fee) * normalizedGroups.length;
+      const discount = 0; // Voucher calculation is intentionally server-owned; client totals are ignored.
       order.subtotal = calculatedSubtotal;
       order.shipping_fee = shippingFee;
       order.discount = discount;
@@ -227,8 +231,8 @@ export class OrdersService {
         for (const g of normalizedGroups) {
           const { items: groupItems, ...groupFields } = g;
           const subtotal = groupItems.reduce((sum: number, item: any) => sum + item.subtotal, 0);
-          const shippingFee = Number(groupFields.shipping_fee ?? 0);
-          const discount = Number(groupFields.discount ?? 0);
+          const shippingFee = Number(shippingRow[0].shipping_fee);
+          const discount = 0;
           const grpEntity: OrderShopGroup = this.groupRepository.create({
             ...groupFields,
             subtotal,
@@ -265,9 +269,19 @@ export class OrdersService {
     return `ORD-${randomUUID().split('-')[0].toUpperCase()}`;
   }
 
-  async updateStatus(order_id: string, status: string) {
+  async updateStatus(actorId: string, order_id: string, status: string) {
     const order = await this.findOne(order_id);
     const nextStatus = String(status || '').toUpperCase();
+    const transitions: Record<string, string[]> = {
+      PENDING: ['CANCELLED'], CONFIRMED: ['PACKING', 'CANCELLED'],
+      PACKING: ['SHIPPING', 'CANCELLED'], SHIPPING: ['COMPLETED'],
+    };
+    if (!transitions[order.order_status]?.includes(nextStatus)) throw new BadRequestException('Invalid order status transition');
+    const groups = await this.groupRepository.find({ where: { order_id } });
+    const shops = await this.dataSource.manager.find(Shop, { where: { shop_id: In(groups.map(group => group.shop_id)) } as any });
+    const isOwner = shops.some(shop => shop.owner_id === actorId);
+    if (nextStatus !== 'CANCELLED' && !isOwner) throw new ForbiddenException();
+    if (nextStatus === 'CANCELLED' && order.user_id !== actorId && !isOwner) throw new ForbiddenException();
     if (nextStatus === 'CANCELLED' && order.order_status !== 'CANCELLED') {
       await this.releaseReservation(order_id);
     }
@@ -276,7 +290,11 @@ export class OrdersService {
     return this.findOne(order_id);
   }
 
+
   async handleMoMoIpn(payload: Record<string, any>) {
+    if (!process.env.MOMO_SECRET || !process.env.MOMO_ACCESS_KEY) {
+      return { resultCode: 1, message: 'Payment provider is not configured' };
+    }
     const rawSignature = `accessKey=${process.env.MOMO_ACCESS_KEY}&amount=${payload.amount}&extraData=${payload.extraData || ''}&message=${payload.message || ''}&orderId=${payload.orderId}&orderInfo=${payload.orderInfo}&orderType=${payload.orderType || ''}&partnerCode=${payload.partnerCode}&payType=${payload.payType || ''}&requestId=${payload.requestId}&responseTime=${payload.responseTime}&resultCode=${payload.resultCode}&transId=${payload.transId}`;
     const expectedSignature = crypto.createHmac('sha256', process.env.MOMO_SECRET || '').update(rawSignature).digest('hex');
     const payment = await this.paymentRepository.findOne({ where: { transaction_code: payload.orderId } });
@@ -285,15 +303,33 @@ export class OrdersService {
       return { resultCode: 1, message: 'Invalid payment notification' };
     }
     if (Number(payment.amount) !== Number(payload.amount)) return { resultCode: 1, message: 'Amount mismatch' };
-    if (payment.payment_status === 'SUCCESS') return { resultCode: 0, message: 'Success' };
-    if (Number(payload.resultCode) !== 0) {
-      payment.payment_status = 'FAILED';
-      await this.paymentRepository.save(payment);
-      await this.updateStatus(payment.order_id, 'CANCELLED');
-      return { resultCode: 0, message: 'Failure recorded' };
-    }
+    let message = 'Success';
     await this.dataSource.transaction(async (manager) => {
-      const items = await manager.find(OrderItem, { where: { order_id: payment.order_id } });
+      const lockedPayment = await manager.findOne(Payment, {
+        where: { payment_id: payment.payment_id }, lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedPayment) throw new NotFoundException('Payment not found');
+      if (lockedPayment.payment_status === 'SUCCESS' || lockedPayment.payment_status === 'FAILED') {
+        message = 'Already processed';
+        return;
+      }
+      if (Number(payload.resultCode) !== 0) {
+        await manager.update(Payment, { payment_id: lockedPayment.payment_id }, { payment_status: 'FAILED' });
+        const items = await manager.find(OrderItem, { where: { order_id: lockedPayment.order_id } });
+        for (const item of items) {
+          const inventory = await manager.createQueryBuilder(Inventory, 'inventory').setLock('pessimistic_write')
+            .where('inventory.variant_id = :id', { id: item.variant_id }).getOne();
+          if (inventory) {
+            inventory.reserved_quantity = Math.max(0, inventory.reserved_quantity - item.quantity);
+            await manager.save(Inventory, inventory);
+          }
+        }
+        await manager.update(Order, { order_id: lockedPayment.order_id }, { order_status: 'CANCELLED', updated_at: new Date().toISOString() });
+        await manager.save(OrderStatusHistory, manager.create(OrderStatusHistory, { order_id: lockedPayment.order_id, status: 'CANCELLED' }));
+        message = 'Failure recorded';
+        return;
+      }
+      const items = await manager.find(OrderItem, { where: { order_id: lockedPayment.order_id } });
       for (const item of items) {
         const inventory = await manager.createQueryBuilder(Inventory, 'inventory')
           .setLock('pessimistic_write').where('inventory.variant_id = :id', { id: item.variant_id }).getOneOrFail();
@@ -301,13 +337,46 @@ export class OrdersService {
         inventory.quantity -= item.quantity;
         await manager.save(Inventory, inventory);
       }
-      await manager.update(Payment, { payment_id: payment.payment_id }, {
+      await manager.update(Payment, { payment_id: lockedPayment.payment_id }, {
         payment_status: 'SUCCESS', paid_at: new Date().toISOString(),
       });
-      await manager.update(Order, { order_id: payment.order_id }, { order_status: 'CONFIRMED', updated_at: new Date().toISOString() });
-      await manager.save(OrderStatusHistory, manager.create(OrderStatusHistory, { order_id: payment.order_id, status: 'CONFIRMED' }));
+      await manager.update(Order, { order_id: lockedPayment.order_id }, { order_status: 'CONFIRMED', updated_at: new Date().toISOString() });
+      await manager.save(OrderStatusHistory, manager.create(OrderStatusHistory, { order_id: lockedPayment.order_id, status: 'CONFIRMED' }));
     });
-    return { resultCode: 0, message: 'Success' };
+    return { resultCode: 0, message };
+  }
+
+  async confirmCodCollection(actor: { user_id: string; roles?: string[] }, orderId: string) {
+    const roles = actor.roles || [];
+    if (!roles.some(role => ['ADMIN', 'STAFF', 'SHIPPER'].includes(String(role).toUpperCase()))) {
+      throw new ForbiddenException('Only staff or shippers can confirm COD collection');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const order = await manager.findOne(Order, { where: { order_id: orderId }, lock: { mode: 'pessimistic_write' } });
+      const payment = await manager.findOne(Payment, { where: { order_id: orderId }, lock: { mode: 'pessimistic_write' } });
+      if (!order || !payment) throw new NotFoundException('Order or payment not found');
+      if (order.order_status !== 'SHIPPING' || payment.payment_status !== 'PENDING') {
+        throw new BadRequestException('COD may only be collected for a shipping, unpaid order');
+      }
+      const items = await manager.find(OrderItem, { where: { order_id: orderId } });
+      for (const item of items) {
+        const inventory = await manager.createQueryBuilder(Inventory, 'inventory').setLock('pessimistic_write')
+          .where('inventory.variant_id = :id', { id: item.variant_id }).getOneOrFail();
+        inventory.reserved_quantity -= item.quantity;
+        inventory.quantity -= item.quantity;
+        await manager.save(Inventory, inventory);
+      }
+      await manager.update(Payment, { payment_id: payment.payment_id }, { payment_status: 'SUCCESS', paid_at: new Date().toISOString() });
+      await manager.update(Order, { order_id: orderId }, { order_status: 'COMPLETED', updated_at: new Date().toISOString() });
+      await manager.save(OrderStatusHistory, manager.create(OrderStatusHistory, { order_id: orderId, status: 'COMPLETED' }));
+    });
+    return this.findOne(orderId);
+  }
+
+  private async cancelPaymentOrder(orderId: string) {
+    await this.releaseReservation(orderId);
+    await this.orderRepository.update({ order_id: orderId }, { order_status: 'CANCELLED', updated_at: new Date().toISOString() });
+    await this.historyRepository.save({ order_id: orderId, status: 'CANCELLED', changed_at: new Date().toISOString() } as OrderStatusHistory);
   }
 
   private async releaseReservation(orderId: string) {
@@ -322,11 +391,6 @@ export class OrdersService {
         }
       }
     });
-  }
-
-  async addPayment(order_id: string, payment: Partial<Payment>) {
-    const record = this.paymentRepository.create({ ...payment, order_id });
-    return this.paymentRepository.save(record);
   }
 
   async addShipment(order_shop_id: string, shipment: Partial<Shipment>) {

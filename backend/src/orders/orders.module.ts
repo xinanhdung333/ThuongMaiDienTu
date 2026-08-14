@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
+import { PaymentsController } from './payments.controller';
 import { Order } from './entities/order.entity';
 import { OrderShopGroup } from './entities/order-shop-group.entity';
 import { OrderItem } from './entities/order-item.entity';
@@ -15,7 +16,7 @@ import { Inventory } from '../products/entities/inventory.entity';
 @Module({
   imports: [TypeOrmModule.forFeature([Order, OrderShopGroup, OrderItem, Payment, Shipment, OrderStatusHistory, Shop, ProductVariant, Inventory])],
   providers: [OrdersService],
-  controllers: [OrdersController],
+  controllers: [OrdersController, PaymentsController],
   exports: [OrdersService],
 })
 export class OrdersModule {}

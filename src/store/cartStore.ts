@@ -11,7 +11,7 @@ interface CartState {
   note: string;
   
   loadCart: (userId: string) => Promise<void>;
-  addItem: (userId: string, variantId: string, quantity: number, selectAdded?: boolean) => Promise<boolean>;
+  addItem: (userId: string, variantId: string, quantity: number, selectAdded?: boolean) => Promise<{ success: boolean; message?: string }>;
   updateQty: (cartItemId: string, newQty: number) => Promise<boolean>;
   removeItem: (cartItemId: string) => void;
   toggleSelect: (cartItemId: string) => void;
@@ -77,9 +77,12 @@ export const useCartStore = create<CartState>((set, get) => ({
           ? [addedItem.cart_item_id]
           : state.selectedItemIds,
       }));
-      return true;
-    } catch {
-      return false;
+      return { success: true };
+    } catch (error: any) {
+      const message = typeof error?.message === 'string'
+        ? error.message
+        : 'Could not add this item to the cart.';
+      return { success: false, message };
     }
   },
 
@@ -259,7 +262,11 @@ export const useCartStore = create<CartState>((set, get) => ({
 
     try {
       const createdOrder = await api.orders.create(payload as any);
-      await api.carts.clear(userId);
+      // Keep the cart while MoMo is pending. It is only safe to clear it after
+      // the server has received a verified payment notification.
+      if (!String(paymentMethodId).toLowerCase().includes('momo')) {
+        await api.carts.clear(userId);
+      }
       set({ selectedItemIds: [], vouchers: [], note: '' });
       await get().loadCart(userId);
       return createdOrder.order_id;

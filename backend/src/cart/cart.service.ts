@@ -111,7 +111,15 @@ export class CartService {
     const cart = await this.getCart(userId);
     const item = await this.cartItemRepository.findOne({ where: { cart_item_id: itemId, cart_id: cart.cart_id } });
     if (!item) throw new NotFoundException('Cart item not found');
-    item.quantity = quantity;
+    const safeQuantity = Number(quantity);
+    if (!Number.isInteger(safeQuantity) || safeQuantity < 1) {
+      throw new BadRequestException('Quantity must be a positive integer');
+    }
+    const inventory = await this.inventoryRepository.findOne({ where: { variant_id: item.variant_id } });
+    if (!inventory || inventory.quantity - inventory.reserved_quantity < safeQuantity) {
+      throw new BadRequestException('Insufficient stock available');
+    }
+    item.quantity = safeQuantity;
     return this.cartItemRepository.save(item);
   }
 

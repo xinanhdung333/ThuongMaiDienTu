@@ -7,7 +7,7 @@ import { api } from '@/services/api';
 import { ShippingMethod, Address } from '@/types';
 import { 
   MapPin, CreditCard, Truck, Receipt, MessageSquare, ChevronRight, 
-  Plus, Check, Percent, ArrowLeft, Loader2, Sparkles, Smartphone, Building2, Copy, CheckCircle2
+  Plus, Check, Percent, ArrowLeft, Loader2, Sparkles, Smartphone, Building2, Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -84,7 +84,6 @@ export const Checkout: React.FC = () => {
     amount: number;
     reference: string;
   } | null>(null);
-  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
   const [momoPayUrl, setMomoPayUrl] = useState<string | null>(null);
   const [momoCreating, setMomoCreating] = useState(false);
   const [hasMomoRedirected, setHasMomoRedirected] = useState(false);
@@ -245,7 +244,7 @@ export const Checkout: React.FC = () => {
               setHasMomoRedirected(false);
               setMomoPayUrl(null);
               setMomoCreating(true);
-              api.orders.createMoMo(orderId, { amount: calculations.totalAmount, orderInfo: reference })
+              api.orders.createMoMo(orderId, { orderInfo: reference })
                 .then((res) => {
                   if (res && res.payUrl) {
                     setMomoPayUrl(res.payUrl);
@@ -291,27 +290,6 @@ export const Checkout: React.FC = () => {
       window.location.assign(momoPayUrl);
     }
   }, [momoPayUrl, paymentModalState, hasMomoRedirected]);
-
-  const handleConfirmPayment = async () => {
-    if (!paymentModalState) return;
-    setIsConfirmingPayment(true);
-    try {
-      await api.orders.addPayment(paymentModalState.orderId, {
-        transaction_code: paymentModalState.reference,
-        amount: paymentModalState.amount,
-        payment_status: 'SUCCESS',
-        paid_at: new Date().toISOString(),
-      });
-      toast('Payment confirmed successfully.', 'success');
-      setPaymentModalState(null);
-      setCheckoutLocked(false);
-      navigate('/orders');
-    } catch {
-      toast('Could not confirm payment. Please try again.', 'error');
-    } finally {
-      setIsConfirmingPayment(false);
-    }
-  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -660,7 +638,7 @@ export const Checkout: React.FC = () => {
                   <h3 className="text-base font-extrabold text-slate-950 dark:text-white">
                     {paymentModalState.methodId === 'pay-momo' ? 'MoMo Payment' : 'Bank QR Payment'}
                   </h3>
-                  <p className="mt-1 text-xs text-slate-500">Demo QR flow: scan the code, then confirm payment. No real money is transferred yet.</p>
+                  <p className="mt-1 text-xs text-slate-500">Payment status is verified by the server; this screen cannot mark an order as paid.</p>
                 </div>
                 <span className="rounded-full bg-primary-light px-3 py-1 text-[10px] font-bold text-primary dark:bg-primary/10">
                   {paymentModalState.amount.toLocaleString()} ₫
@@ -717,20 +695,6 @@ export const Checkout: React.FC = () => {
                 >
                   Pay Later
                 </button>
-                {paymentModalState.methodId !== 'pay-momo' && (
-                  <button
-                    type="button"
-                    onClick={handleConfirmPayment}
-                    disabled={isConfirmingPayment}
-                    className="flex-1 rounded-2xl bg-primary px-4 py-3 text-xs font-extrabold text-white shadow-md shadow-primary/20 transition hover:bg-primary-dark disabled:opacity-60"
-                  >
-                    {isConfirmingPayment ? (
-                      <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Saving...</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> I Paid</span>
-                    )}
-                  </button>
-                )}
               </div>
               {paymentModalState.methodId === 'pay-momo' && momoPayUrl && (
                 <div className="mt-3">
